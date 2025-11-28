@@ -1,13 +1,26 @@
-import json, time, pyautogui, ollama
+import json, time, pyautogui
+from ollama import Client
+import config
+from getpass import getpass
+
 from agent.prompts import VERIFY_PROMPT
 
 class Operator:
     def __init__(self, model_name, vision):
+        api_key = config.OLLAMA_API_KEY
+        if not api_key:
+            api_key = getpass(prompt="Enter Ollama API Key: ")
+
+        self.client = Client(
+            host="https://ollama.com",
+            headers={"Authorization": f"Bearer {api_key}"}
+        )
         self.model_name = model_name
         self.vision = vision
 
-    def think(self, goal, messages):
-        result = ollama.chat(model=self.model_name, messages=messages)
+
+    def think(self, messages):
+        result = self.client.chat(model=self.model_name, messages=messages)
         raw = result["message"]["content"].strip()
 
         try:
@@ -31,7 +44,7 @@ class Operator:
             {"role": "user", "content": json.dumps(payload)}
         ]
 
-        result = ollama.chat(model=self.model_name, messages=messages)
+        result = self.client.chat(model=self.model_name, messages=messages)
         raw = result["message"]["content"].strip()
 
         try:

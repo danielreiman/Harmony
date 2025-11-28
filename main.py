@@ -28,7 +28,7 @@ def main():
         })
 
         # ================= AI =================
-        step, raw_ai_message = operator.think(goal, messages)
+        step, raw_ai_message = operator.think(messages)
 
         print("=========== ACTION ===========")
         print(f"REASONING: {step["Reasoning"]}")

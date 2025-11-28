@@ -40,19 +40,31 @@ Your environment is now ready.
 
 ---
 
-## Install and configure Ollama
+## Configure Ollama Cloud API Access
 
-Harmony uses the qwen3-vl:235b-cloud model through the Ollama runtime.
+Harmony uses the **qwen3-vl:235b-cloud** model through the **Ollama Cloud API**.  
+You do **not** need to install the Ollama desktop application or download any local models.
 
-1. Install the Ollama application.
-2. Sign in with your account.
-3. Pull the required model:
+### Option 1. Use a `.env` file (recommended on personal machines)
+
+Create a file named `.env` in the project root:
+```
+OLLAMA_API_KEY=your_api_key_here
+```
+
+This file is automatically loaded at runtime and must **not** be committed to GitHub.
+
+---
+
+### Option 2. Type the API key at runtime (recommended for school machines)
+
+If no `.env` file is found, Harmony will safely prompt:
 
 ```
-ollama pull qwen3-vl:235b-cloud
+Enter Ollama API Key:
 ```
 
-After the download completes, the model side is fully prepared.
+The key is used only for that session and is never stored on disk.
 
 ---
 

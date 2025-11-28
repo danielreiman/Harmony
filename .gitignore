@@ -6,4 +6,4 @@ models/weights/
 
 # ignore env files
 .env
-.env.*
+.env

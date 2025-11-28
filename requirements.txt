@@ -1,4 +1,5 @@
 huggingface-hub
+python-dotenv
 keyboard~=0.13.5
 PyAutoGUI~=0.9.54
 ollama~=0.6.0
