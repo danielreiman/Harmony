@@ -1,0 +1,7 @@
+huggingface-hub
+keyboard~=0.13.5
+PyAutoGUI~=0.9.54
+ollama~=0.6.0
+opencv-python~=4.12.0.88
+ultralytics~=8.3.220
+pillow~=12.0.0

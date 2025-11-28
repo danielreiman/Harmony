@@ -1,0 +1,9 @@
+# ignore weights folder
+models/weights/
+
+# ignore virtual environment
+.venv/
+
+# ignore env files
+.env
+.env.*
