@@ -9,7 +9,7 @@ class ScreenParser:
             raise FileNotFoundError("Missing YOLO model weights at weights/icon_detect/model.pt")
         self.model = YOLO(model_path)
 
-    def extract(self, screenshot_path="./runtime/screenshot.png", detected_path="../runtime/detected.png", draw=True):
+    def extract(self, screenshot_path="./runtime/screenshot.png", detected_path="./runtime/detected.png", draw=True):
         results = self.model.predict(
             screenshot_path,
             conf=0.1,  # lower threshold: catch small or faint icons
@@ -106,14 +106,18 @@ class Vision:
         return None
 
     def focus(self, box_id, elements, screenshot_path):
-        cropped_path = "./runtime/focus.png"
+        coords = self.locate(box_id, elements)
+        if not coords:
+            return None
 
+        x1, y1, x2, y2 = coords
         img = Image.open(screenshot_path)
 
-        cropped_img = img.crop(self.locate(box_id, elements))
-        cropped_img.save(cropped_path)
+        cropped_path = f"./runtime/focus_{box_id}.png"
+        img.crop((x1, y1, x2, y2)).save(cropped_path)
 
         return cropped_path
+
 
 
 

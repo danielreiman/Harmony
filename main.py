@@ -1,11 +1,12 @@
 import time
 import keyboard
+import overlay
 from agent.vision import Vision
 from agent.operator import Operator
 from agent.prompts import MAIN_PROMPT
 
 def main():
-    goal = "Calculate and return the following: 9+10 use only the apps in the computer not your brain"
+    goal = "Calculate the result of the expression 9 + 10 using only computer applications, not internal reasoning."
 
     vision = Vision()
     operator = Operator("qwen3-vl:235b-cloud", vision)
@@ -30,12 +31,12 @@ def main():
         # ================= AI =================
         step, raw_ai_message = operator.think(messages)
 
-        print("\n┌───────────────────────────────────── ACTION CORE ─────────────────────────────────────┐")
-        print(f"│ REASONING  : {step.get('Reasoning', 'N/A')}")
-        print(f"│ ACTION     : {step.get('Next Action', 'N/A')}")
-        print(f"│ TARGET ID  : {step.get('Target_Box_ID', 'N/A')}")
-        print(f"│ VALUE      : {step.get('Value', 'N/A')}")
-        print("└────────────────────────────────────────────────────────────────────────────────────────┘\n")
+        overlay.send_to_overlay(
+            step.get("Reasoning"),
+            step.get("Next Action"),
+            step.get("Target_Box_ID"),
+            step.get("Value")
+        )
 
         if messages and "images" in messages[-1]:
             messages[-1].pop("images", None)
@@ -44,6 +45,13 @@ def main():
 
         # ================= STEP VERIFICATION =================
         focus_element_path = vision.focus(step["Target_Box_ID"], elements, screenshot_path)
+        if not focus_element_path:
+            messages.append({
+                "role": "user",
+                "content": "System feedback: Invalid target ID."
+            })
+            continue
+
         verdict = operator.verify(goal, focus_element_path, messages[-1])
 
         print("\n┌──────────────────────────────────── HARMONY VERIFIER ──────────────────────────────────┐")

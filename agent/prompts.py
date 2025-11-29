@@ -137,7 +137,7 @@ Return only valid JSON in this exact format:
 }
 
 Reject the action if:
-- The element does not clearly and directly support the goal
+- The element does not directly or indirectly support the goal
 - The interaction does not make sense for this specific element
 - The element identity is uncertain, generic, or visually meaningless
 - The action could lead to unintended behavior
