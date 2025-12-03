@@ -1,11 +1,12 @@
 import time
 import keyboard
+import overlay
 from agent.vision import Vision
 from agent.operator import Operator
 from agent.prompts import MAIN_PROMPT
 
 def main():
-    goal = "Open the first ever youtube video"
+    goal = "Calculate the result of the expression 9 + 10 using only computer applications, not internal reasoning."
 
     vision = Vision()
     operator = Operator("qwen3-vl:235b-cloud", vision)
@@ -30,12 +31,12 @@ def main():
         # ================= AI =================
         step, raw_ai_message = operator.think(messages)
 
-        print("=========== ACTION ===========")
-        print(f"REASONING: {step["Reasoning"]}")
-        print(f"ACTION: {step["Next Action"]}")
-        print(f"TARGET BOX: {step["Target_Box_ID"]}")
-        print(f"VALUE: {step["Value"]}")
-        print("==============================\n")
+        overlay.send_to_overlay(
+            step.get("Reasoning"),
+            step.get("Next Action"),
+            step.get("Target_Box_ID"),
+            step.get("Value")
+        )
 
         if messages and "images" in messages[-1]:
             messages[-1].pop("images", None)
@@ -44,7 +45,19 @@ def main():
 
         # ================= STEP VERIFICATION =================
         focus_element_path = vision.focus(step["Target_Box_ID"], elements, screenshot_path)
+        if not focus_element_path:
+            messages.append({
+                "role": "user",
+                "content": "System feedback: Invalid target ID."
+            })
+            continue
+
         verdict = operator.verify(goal, focus_element_path, messages[-1])
+
+        print("\n┌──────────────────────────────────── HARMONY VERIFIER ──────────────────────────────────┐")
+        print(f"│ STATUS  : {verdict.get('verdict', 'unknown').upper()}")
+        print(f"│ REASON  : {verdict.get('reason', 'no reason provided')}")
+        print("└────────────────────────────────────────────────────────────────────────────────────────┘\n")
 
         if verdict.get("verdict") != "accept":
             feedback = f"Verifier rejected action: {verdict.get('reason')}"

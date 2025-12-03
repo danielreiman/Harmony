@@ -6,6 +6,19 @@ This README explains how to set up the environment, install the model, prepare t
 
 ---
 
+
+## ONE COMMAND SETUP (Run Before Starting Harmony)
+
+macOS and Linux:
+```bash
+python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && python download_weights.py
+```
+
+Windows PowerShell:
+```bash
+python -m venv .venv; ..venv\Scripts\Activate.ps1; pip install -r requirements.txt; python download_weights.py
+```
+
 ## Setup
 
 ### Create the Python environment

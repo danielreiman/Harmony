@@ -9,7 +9,7 @@ files = [
     "icon_detect/model.yaml"
 ]
 
-local_dir = Path("../models/weights")
+local_dir = Path("./models/weights")
 local_dir.mkdir(parents=True, exist_ok=True)
 
 for f in files:
