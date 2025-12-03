@@ -6,7 +6,7 @@ from getpass import getpass
 from agent.prompts import VERIFY_PROMPT
 
 class Operator:
-    def __init__(self, model_name, vision):
+    def __init__(self, model_name, verify_model_name, vision):
         api_key = config.OLLAMA_API_KEY
         if not api_key:
             api_key = getpass(prompt="Enter Ollama API Key: ")
@@ -16,11 +16,15 @@ class Operator:
             headers={"Authorization": f"Bearer {api_key}"}
         )
         self.model_name = model_name
+        self.verify_model_name = verify_model_name
         self.vision = vision
 
 
     def think(self, messages):
-        result = self.client.chat(model=self.model_name, messages=messages)
+        MAX_HISTORY = 10
+        trimmed = [messages[0]] + messages[-MAX_HISTORY:]
+
+        result = self.client.chat(model=self.model_name, messages=trimmed)
         raw = result["message"]["content"].strip()
 
         try:
@@ -35,16 +39,16 @@ class Operator:
     def verify(self, goal, detected_element, step):
         payload = {
             "goal": goal,
-            "detected_element": detected_element,
             "proposed_step": step
         }
 
         messages = [
             {"role": "system", "content": VERIFY_PROMPT},
+            {"role": "user", "content": "Here is the element", "images": [detected_element]},
             {"role": "user", "content": json.dumps(payload)}
         ]
 
-        result = self.client.chat(model=self.model_name, messages=messages)
+        result = self.client.chat(model=self.verify_model_name, messages=messages)
         raw = result["message"]["content"].strip()
 
         try:
@@ -95,3 +99,4 @@ class Operator:
             return f"Action done: {action}"
         except Exception as e:
             return f"Failed: {action} -> {e}"
+

@@ -1,15 +1,14 @@
 import time
 import keyboard
-import overlay
 from agent.vision import Vision
 from agent.operator import Operator
 from agent.prompts import MAIN_PROMPT
 
 def main():
-    goal = "Calculate the result of the expression 9 + 10 using only computer applications, not internal reasoning."
+    goal = "Open the first ever youtube video"
 
     vision = Vision()
-    operator = Operator("qwen3-vl:235b-cloud", vision)
+    operator = Operator("qwen3-vl:235b-instruct-cloud", "qwen3-vl:235b-instruct-cloud", vision)
 
     print("[LOG] Agent running. Press ESC to stop.")
 
@@ -31,12 +30,12 @@ def main():
         # ================= AI =================
         step, raw_ai_message = operator.think(messages)
 
-        overlay.send_to_overlay(
-            step.get("Reasoning"),
-            step.get("Next Action"),
-            step.get("Target_Box_ID"),
-            step.get("Value")
-        )
+        print("\n┌──────────────────────────────────── HARMONY AGENT STEP ──────────────────────────────────┐")
+        print(f"│ REASON  : {step.get('Reasoning', 'no reasoning provided')}")
+        print(f"│ ACTION  : {step.get('Next Action', 'no action provided')}")
+        print(f"│ TARGET  : {step.get('Target_Box_ID', 'no target provided')}")
+        print(f"│ VALUE   : {step.get('Value', 'no value provided')}")
+        print("└────────────────────────────────────────────────────────────────────────────────────────┘\n")
 
         if messages and "images" in messages[-1]:
             messages[-1].pop("images", None)
@@ -52,17 +51,17 @@ def main():
             })
             continue
 
-        verdict = operator.verify(goal, focus_element_path, messages[-1])
+        verdict = operator.verify(goal, focus_element_path, step)
 
         print("\n┌──────────────────────────────────── HARMONY VERIFIER ──────────────────────────────────┐")
         print(f"│ STATUS  : {verdict.get('verdict', 'unknown').upper()}")
+        print(f"│ VISUAL DESCRIPTION  : {verdict.get('visual_description', 'no visual description provided').upper()}")
         print(f"│ REASON  : {verdict.get('reason', 'no reason provided')}")
         print("└────────────────────────────────────────────────────────────────────────────────────────┘\n")
 
         if verdict.get("verdict") != "accept":
             feedback = f"Verifier rejected action: {verdict.get('reason')}"
             messages.append({"role": "user", "content": f"System feedback: {feedback}"})
-            time.sleep(1)
             continue
 
         if step.get("Next Action") in [None, "None"]:
@@ -80,3 +79,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
