@@ -6,17 +6,16 @@ This README explains how to set up the environment, install the model, prepare t
 
 ---
 
-
-## ONE COMMAND SETUP (Run Before Starting Harmony)
+## ONE COMMAND SETUP AFTER CLONNING (Run Before Starting Harmony)
 
 macOS and Linux:
 ```bash
-python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && python download_weights.py
+python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt && python tools/download_weights.py
 ```
 
 Windows PowerShell:
 ```bash
-python -m venv .venv; ..venv\Scripts\Activate.ps1; pip install -r requirements.txt; python download_weights.py
+python -m venv .venv; ..venv\Scripts\Activate.ps1; pip install -r requirements.txt; python tools/download_weights.py
 ```
 
 ## Setup
@@ -89,7 +88,7 @@ Harmony relies on OmniParser for icon detection and screen captioning. These wei
 Download the required model files from the Microsoft OmniParser repository:
 
 ```
-python download_weights.py
+python tools/download_weights.py
 ```
 
 The detection and captioning weights are now ready for use.
@@ -135,7 +134,9 @@ At this stage you have:
 
 * A clean Python environment with all dependencies installed
 * The Ollama runtime configured
-* The qwen3-vl:235b-cloud model downloaded
-* All OmniParser weights placed correctly under Harmony/weights
+* All OmniParser weights placed correctly under Harmony/models/weights
+
 
 You can now start the project and watch Harmony operate your desktop in real time.
+
+## To choose a task for the agent, enter the task into the `goal` variable in the `main.py` file, then run `main.py`.
