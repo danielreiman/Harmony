@@ -9,7 +9,6 @@ that advances the final task. Every output must follow the JSON format described
 ACTIONS
 ────────────────────────
 - plan_think
-- feedback_review
 - mouse_move [x, y]
 - left_click
 - double_click

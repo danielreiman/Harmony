@@ -114,6 +114,3 @@ class Vision:
         cropped_img.save(cropped_path)
 
         return cropped_path
-
-
-
