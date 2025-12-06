@@ -1,11 +1,15 @@
+# Virtual environments
 .venv/
 venv/
 env/
 
+# Environment variables
 .env
 
-.idea/
+# Runtime generated files and folders
+runtime/
+
+# Python cache and others
 __pycache__/
 .DS_Store
-
-runtime/
+.idea/
