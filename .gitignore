@@ -11,5 +11,7 @@ runtime/
 
 # Python cache and others
 __pycache__/
+*.py[cod]
 .DS_Store
 .idea/
+
