@@ -1,6 +1,11 @@
-# ignore virtual environment
 .venv/
+venv/
+env/
 
-# ignore env files
 .env
-.env
+
+.idea/
+__pycache__/
+.DS_Store
+
+runtime/

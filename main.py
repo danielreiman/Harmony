@@ -4,6 +4,8 @@ import pyautogui
 from agent.operator import Operator
 from agent.prompts import MAIN_PROMPT
 
+SCREENSHOT_PATH = "./runtime/screenshot.png"
+
 def main():
     goal = "Calculate 9+10 without using reasoning and only using the computer"
 
@@ -18,15 +20,13 @@ def main():
 
     while not keyboard.is_pressed("esc"):
         # ================= VISION =================
-        screenshot_path = f"./runtime/screenshot.png"
-
         img = pyautogui.screenshot()
-        img.save(screenshot_path)
+        img.save(SCREENSHOT_PATH)
 
         messages.append({
             "role": "user",
             "content": "Current view",
-            "images": [screenshot_path]
+            "images": [SCREENSHOT_PATH]
         })
 
         # ================= AI =================
@@ -53,6 +53,7 @@ def main():
         messages.append({"role": "user", "content": f"System feedback: {feedback}"})
 
         time.sleep(1)
+
 
     print("[LOG] Program finished.")
 
