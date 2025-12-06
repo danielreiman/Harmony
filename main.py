@@ -7,7 +7,7 @@ from agent.prompts import MAIN_PROMPT
 def main():
     goal = "Calculate 9+10 without using reasoning and only using the computer"
 
-    operator = Operator("qwen3-vl:235b-instruct-cloud", "qwen3-vl:235b-instruct-cloud")
+    operator = Operator("qwen3-vl:235b-instruct-cloud")
 
     print("[LOG] Agent running. Press ESC to stop.")
 

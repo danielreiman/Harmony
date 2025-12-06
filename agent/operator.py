@@ -4,7 +4,7 @@ import config
 from getpass import getpass
 
 class Operator:
-    def __init__(self, model_name, verify_model_name):
+    def __init__(self, model_name):
         api_key = config.OLLAMA_API_KEY
         if not api_key:
             api_key = getpass(prompt="Enter Ollama API Key: ")
@@ -14,7 +14,6 @@ class Operator:
             headers={"Authorization": f"Bearer {api_key}"}
         )
         self.model_name = model_name
-        self.verify_model_name = verify_model_name
 
 
     def think(self, messages):
