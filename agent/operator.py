@@ -34,9 +34,7 @@ class Operator:
 
     def act(self, step: dict[str, str]):
         action = step.get("Next Action")
-        coordinate = step.get("Coordinate")
         value = step.get("Value")
-
         coordinate = step.get("Coordinate")
 
         viewport = {
@@ -47,41 +45,58 @@ class Operator:
         }
 
         coords = None
-
         if action in ["mouse_move", "left_click", "double_click", "right_click"]:
             coords = normalize_coordinate(coordinate, viewport)
 
         try:
-            if action == "mouse_move" and coords:
-                pyautogui.moveTo(*coords)
-            elif action == "left_click" and coords:
-                pyautogui.click(*coords)
-            elif action == "double_click" and coords:
-                pyautogui.doubleClick(*coords)
-            elif action == "right_click" and coords:
-                pyautogui.click(*coords, button="right")
+            if coords and action in {"mouse_move", "left_click", "double_click", "right_click"}:
+                pyautogui.moveTo(coords[0], coords[1], duration=0.35)
+
+            if action == "mouse_move":
+                pass
+
+            elif action == "left_click":
+                pyautogui.click(button="left")
+
+            elif action == "double_click":
+                pyautogui.click()
+                time.sleep(0.12)
+                pyautogui.click()
+
+            elif action == "right_click":
+                pyautogui.click(button="right")
+
             elif action == "type":
-                pyautogui.typewrite(value)
+                pyautogui.typewrite(value, interval=0.04)
+
             elif action == "press_key":
                 pyautogui.press(value)
+
             elif action == "hotkey":
                 if isinstance(value, str):
                     value = json.loads(value)
-                pyautogui.hotkey(*value)
+                pyautogui.hotkey(*value, interval=0.04)
+
             elif action == "scroll_up":
-                pyautogui.scroll(500)
+                pyautogui.scroll(360)
+
             elif action == "scroll_down":
-                pyautogui.scroll(-500)
+                pyautogui.scroll(-360)
+
             elif action == "wait":
-                time.sleep(1)
+                time.sleep(0.35)
+
             elif action in [None, "None"]:
                 return "Task complete."
+
             else:
                 return f"Unknown action: {action}"
 
             return f"Action done: {action}"
+
         except Exception as e:
             return f"Failed: {action} -> {e}"
+
 
 def normalize_coordinate(coordinate, viewport):
     """
