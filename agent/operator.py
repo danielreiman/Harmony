@@ -3,10 +3,8 @@ from ollama import Client
 import config
 from getpass import getpass
 
-from agent.prompts import VERIFY_PROMPT
-
 class Operator:
-    def __init__(self, model_name, verify_model_name, vision):
+    def __init__(self, model_name):
         api_key = config.OLLAMA_API_KEY
         if not api_key:
             api_key = getpass(prompt="Enter Ollama API Key: ")
@@ -16,8 +14,6 @@ class Operator:
             headers={"Authorization": f"Bearer {api_key}"}
         )
         self.model_name = model_name
-        self.verify_model_name = verify_model_name
-        self.vision = vision
 
 
     def think(self, messages):
@@ -36,37 +32,24 @@ class Operator:
 
         return step, raw
 
-    def verify(self, goal, detected_element, step):
-        payload = {
-            "goal": goal,
-            "proposed_step": step
-        }
-
-        messages = [
-            {"role": "system", "content": VERIFY_PROMPT},
-            {"role": "user", "content": "Here is the element", "images": [detected_element]},
-            {"role": "user", "content": json.dumps(payload)}
-        ]
-
-        result = self.client.chat(model=self.verify_model_name, messages=messages)
-        raw = result["message"]["content"].strip()
-
-        try:
-            start = raw.find("{")
-            end = raw.rfind("}") + 1
-            verdict = json.loads(raw[start:end])
-        except Exception:
-            verdict = {"verdict": "reject", "reason": "Cannot parse verifier output"}
-
-        return verdict
-
-    def act(self, step: dict[str, str], elements):
+    def act(self, step: dict[str, str]):
         action = step.get("Next Action")
-        box_id = step.get("Target_Box_ID")
+        coordinate = step.get("Coordinate")
         value = step.get("Value")
 
-        x1, y1, x2, y2 = self.vision.locate(box_id, elements)
-        coords = ((x1 + x2) // 2, (y1 + y2) // 2)
+        coordinate = step.get("Coordinate")
+
+        viewport = {
+            "monitor_left": 0,
+            "monitor_top": 0,
+            "display_width": 1920,
+            "display_height": 1080,
+        }
+
+        coords = None
+
+        if action in ["mouse_move", "left_click", "double_click", "right_click"]:
+            coords = normalize_coordinate(coordinate, viewport)
 
         try:
             if action == "mouse_move" and coords:
@@ -100,3 +83,35 @@ class Operator:
         except Exception as e:
             return f"Failed: {action} -> {e}"
 
+def normalize_coordinate(coordinate, viewport):
+    """
+    Convert normalized 0–1000 coordinates to absolute screen coordinates.
+
+    coordinate: [x, y] from model (0–1000 space)
+    viewport: dict with monitor + screen info
+    """
+
+    if coordinate is None or len(coordinate) != 2:
+        raise ValueError("Invalid Coordinate")
+
+    x, y = coordinate
+
+    # Clamp to valid range
+    x = max(0, min(1000, x))
+    y = max(0, min(1000, y))
+
+    # Normalize
+    norm_x = x / 1000.0
+    norm_y = y / 1000.0
+
+    # Extract viewport info
+    left = viewport["monitor_left"]
+    top = viewport["monitor_top"]
+    width = viewport["display_width"]
+    height = viewport["display_height"]
+
+    # Convert to absolute screen position
+    abs_x = left + int(norm_x * width)
+    abs_y = top + int(norm_y * height)
+
+    return abs_x, abs_y

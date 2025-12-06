@@ -1,14 +1,13 @@
 import time
 import keyboard
-from agent.vision import Vision
+import pyautogui
 from agent.operator import Operator
 from agent.prompts import MAIN_PROMPT
 
 def main():
-    goal = "Open the first ever youtube video"
+    goal = "Calculate 9+10 without using reasoning and only using the computer"
 
-    vision = Vision()
-    operator = Operator("qwen3-vl:235b-instruct-cloud", "qwen3-vl:235b-instruct-cloud", vision)
+    operator = Operator("qwen3-vl:235b-instruct-cloud")
 
     print("[LOG] Agent running. Press ESC to stop.")
 
@@ -19,12 +18,15 @@ def main():
 
     while not keyboard.is_pressed("esc"):
         # ================= VISION =================
-        (elements, screenshot_path, detected_path) = vision.look()
+        screenshot_path = f"./runtime/screenshot.png"
+
+        img = pyautogui.screenshot()
+        img.save(screenshot_path)
 
         messages.append({
             "role": "user",
             "content": "Current view",
-            "images": [detected_path]
+            "images": [screenshot_path]
         })
 
         # ================= AI =================
@@ -33,7 +35,7 @@ def main():
         print("\n┌──────────────────────────────────── HARMONY AGENT STEP ──────────────────────────────────┐")
         print(f"│ REASON  : {step.get('Reasoning', 'no reasoning provided')}")
         print(f"│ ACTION  : {step.get('Next Action', 'no action provided')}")
-        print(f"│ TARGET  : {step.get('Target_Box_ID', 'no target provided')}")
+        print(f"│ TARGET  : {step.get('Coordinate', 'no coordinate provided')}")
         print(f"│ VALUE   : {step.get('Value', 'no value provided')}")
         print("└────────────────────────────────────────────────────────────────────────────────────────┘\n")
 
@@ -42,34 +44,12 @@ def main():
 
         messages.append({"role": "assistant", "content": raw_ai_message})
 
-        # ================= STEP VERIFICATION =================
-        focus_element_path = vision.focus(step["Target_Box_ID"], elements, screenshot_path)
-        if not focus_element_path:
-            messages.append({
-                "role": "user",
-                "content": "System feedback: Invalid target ID."
-            })
-            continue
-
-        verdict = operator.verify(goal, focus_element_path, step)
-
-        print("\n┌──────────────────────────────────── HARMONY VERIFIER ──────────────────────────────────┐")
-        print(f"│ STATUS  : {verdict.get('verdict', 'unknown').upper()}")
-        print(f"│ VISUAL DESCRIPTION  : {verdict.get('visual_description', 'no visual description provided').upper()}")
-        print(f"│ REASON  : {verdict.get('reason', 'no reason provided')}")
-        print("└────────────────────────────────────────────────────────────────────────────────────────┘\n")
-
-        if verdict.get("verdict") != "accept":
-            feedback = f"Verifier rejected action: {verdict.get('reason')}"
-            messages.append({"role": "user", "content": f"System feedback: {feedback}"})
-            continue
-
         if step.get("Next Action") in [None, "None"]:
             print("[LOG] Task complete.")
             break
 
         # ================= EXECUTION AND FEEDBACK =================
-        feedback = operator.act(step, elements)
+        feedback = operator.act(step)
         messages.append({"role": "user", "content": f"System feedback: {feedback}"})
 
         time.sleep(1)
