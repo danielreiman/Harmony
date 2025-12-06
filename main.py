@@ -1,10 +1,9 @@
-import time
-import keyboard
-import pyautogui
+import time, os, keyboard, pyautogui
 from agent.operator import Operator
 from agent.prompts import MAIN_PROMPT
 
 SCREENSHOT_PATH = "./runtime/screenshot.png"
+os.makedirs(os.path.dirname(SCREENSHOT_PATH), exist_ok=True)
 
 def main():
     goal = "Calculate 9+10 without using reasoning and only using the computer"
