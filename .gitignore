@@ -4,10 +4,10 @@ venv/
 env/
 
 # Environment variables
-.env
+server/.env
 
 # Runtime generated files and folders
-runtime/
+server/runtime/
 
 # Python cache and others
 __pycache__/
