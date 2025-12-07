@@ -5,7 +5,6 @@ def main():
     os.makedirs("server/runtime", exist_ok=True)
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(("localhost", 8080))
     sock.listen()
 
@@ -23,7 +22,7 @@ def main():
 def handle_client(conn, addr):
     print(f"Connected: {addr}")
 
-    agent = Agent(id=str(addr),  model_name="your-model-name",  task="YOUR TASK HERE", conn=conn)
+    agent = Agent(id=str(addr),  model_name="qwen3-vl:235b-instruct-cloud", conn=conn)
 
     try:
         agent.assign("Open browser and show weather in USA")

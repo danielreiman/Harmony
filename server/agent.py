@@ -11,14 +11,13 @@ class Agent:
     def __init__(self,id, model_name, conn):
         self.id = id
         self.model_name = model_name
-        self.task = None
         self.conn = conn
         self.status = "ready"
         self.history = [
             {"role": "system", "content": MAIN_PROMPT}
         ]
-
         self.screenshot_path = f"{BASE_SCREENSHOT_DIR}/screenshot_{self.id}.png"
+        self.task = None
 
         api_key = config.OLLAMA_API_KEY
         if not api_key:
@@ -98,9 +97,3 @@ class Agent:
             step = {}
 
         return step, raw
-
-
-
-
-
-
