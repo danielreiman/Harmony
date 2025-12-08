@@ -13,9 +13,7 @@ class Agent:
         self.model_name = model_name
         self.conn = conn
         self.status = "idle"
-        self.history = [
-            {"role": "system", "content": MAIN_PROMPT}
-        ]
+        self.history = []
         self.screenshot_path = f"{BASE_SCREENSHOT_DIR}/screenshot_{self.id}.png"
         self.task = None
         self.event = threading.Event()
@@ -47,11 +45,10 @@ class Agent:
     def assign(self, task: str):
         self.task = task
         self.status = "working"
-        self.history = []
-        self.history.append({
-            "role": "user",
-            "content": f"Goal: {task}"
-        })
+        self.history = [
+            {"role": "system", "content": MAIN_PROMPT},
+            {"role": "user", "content": f"Goal: {task}"}
+        ]
 
         self.event.set()
 
