@@ -1,4 +1,4 @@
-import time, json
+import time, json, threading
 from ollama import Client
 import config
 from prompts import MAIN_PROMPT
@@ -12,12 +12,13 @@ class Agent:
         self.id = id
         self.model_name = model_name
         self.conn = conn
-        self.status = "ready"
+        self.status = "idle"
         self.history = [
             {"role": "system", "content": MAIN_PROMPT}
         ]
         self.screenshot_path = f"{BASE_SCREENSHOT_DIR}/screenshot_{self.id}.png"
         self.task = None
+        self.event = threading.Event()
 
         api_key = config.OLLAMA_API_KEY
         if not api_key:
@@ -29,20 +30,32 @@ class Agent:
             headers={"Authorization": f"Bearer {api_key}"}
         )
 
+    def activate(self):
+        while True:
+            self.event.wait()
+            self.event.clear()
+
+            print(f"[Agent {self.id}] Task received:", self.task)
+
+            self.run()
+
+            self.task = None
+            self.status = "idle"
+
+            print(f"[Agent {self.id}] Returned to idle\n")
+
     def assign(self, task: str):
         self.task = task
         self.status = "working"
-
+        self.history = []
         self.history.append({
             "role": "user",
             "content": f"Goal: {task}"
         })
 
-        self.run()
+        self.event.set()
 
     def run(self):
-        self.status = "working"
-
         while self.status == "working" and self.task:
             # ================= VISION =================
             send({"type": "request_screenshot"}, self.conn)

@@ -1,5 +1,7 @@
-import socket, threading, os
+import socket, threading, os, uuid
 from agent import Agent
+
+agents = {}
 
 def main():
     os.makedirs("server/runtime", exist_ok=True)
@@ -12,26 +14,22 @@ def main():
 
     while True:
         conn, addr = sock.accept()
-        thread = threading.Thread(
-            target=handle_client,
-            args=(conn, addr),
-            daemon=True
+
+        agent_id = f"agent-{uuid.uuid4().hex[:6]}"
+
+        print(f"[Server] Agent connected: {agent_id}")
+
+        agent = Agent(
+            id=agent_id,
+            model_name="qwen3-vl:235b-instruct-cloud",
+            conn=conn
         )
-        thread.start()
+        agents[agent_id] = agent
 
-def handle_client(conn, addr):
-    print(f"Connected: {addr}")
-
-    agent = Agent(id=str(addr),  model_name="qwen3-vl:235b-instruct-cloud", conn=conn)
-
-    try:
-        agent.assign("Open browser and show weather in USA")
-    except Exception as e:
-        print("Agent crashed:", e)
-    finally:
-        conn.close()
-        print(f"Disconnected: {addr}")
-
+        threading.Thread(
+            target=agent.activate,
+            daemon=True
+        ).start()
 
 if __name__ == "__main__":
     main()
