@@ -1,3 +1,6 @@
+> [!NOTE]  
+> To use the orchestrator version of Harmony, which includes a central server, multiple clients, parallel agents, and a manager for coordinated execution, switch to the distributed-executor branch.
+
 # Harmony Desktop Agent
 
 Harmony is a vision based desktop automation agent. It observes the screen, understands UI elements, plans actions using a vision language model, and controls the desktop through precise input events.
