@@ -25,7 +25,7 @@ The setup process is identical for server and client machines.
 
 ---
 
-## Server Configuration (Interactive)
+## Server Configuration
 
 Before starting the server, run the setup script:
 
@@ -129,5 +129,6 @@ More clients means more parallel execution.
 ---
 
 ## Ready
+
 
 Once setup and running, Harmony becomes a centralized command system that coordinates and automates multiple desktops at once.
