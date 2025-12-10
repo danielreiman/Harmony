@@ -2,7 +2,7 @@ import socket
 from pathlib import Path
 from helpers import *
 
-SERVER_HOST = "localhost"
+SERVER_HOST = "harmony-server.duckdns.org"
 SERVER_PORT = 8080
 
 def main():

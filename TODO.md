@@ -2,7 +2,7 @@
 
 - [ ] Split one main task into smaller tasks for agents.
 - [ ] Stop and clean up an agent when a client disconnects.
-- [ ] Let clients connect without knowing the server IP.
+- [X] Let clients connect without knowing the server IP.
 - [ ] Share resources between agents and collect their responses into one final result.
 - [ ] Review the final response, request fixes if needed, and present the approved result to the user.
 - [ ] Show task progress, current reasoning, and live screen stream for each agent.

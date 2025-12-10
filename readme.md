@@ -1,11 +1,13 @@
 # Harmony Project
 
-Harmony lets you give one goal and watch it happen across multiple computers.
-The system divides the work into smaller actions and runs them in parallel on connected desktops.
+Harmony lets you give one goal and watch it unfold across multiple computers.
+The system breaks big tasks into small steps and executes them in parallel across connected desktops.
 
 ---
 
 ## Setup
+
+Create a virtual environment and install dependencies.
 
 ### macOS / Linux
 
@@ -19,27 +21,32 @@ python -m venv .venv && source .venv/bin/activate && pip install -r requirements
 python -m venv .venv; .\.venv\Scripts\Activate.ps1; pip install -r requirements.txt
 ```
 
-The setup process is the same for both server and client machines.
+The setup process is identical for server and client machines.
 
 ---
 
-## Configuration (Server Required)
+## Server Configuration (Interactive)
 
-Harmony uses **qwen3-vl:235b-instruct-cloud** via the Ollama Cloud API.
+Before starting the server, run the setup script:
 
-Official Ollama site:
-[https://ollama.com](https://ollama.com)
-
-The **server machine must have an API key** configured before startup.
-
-Create a `.env` file in the project root:
-
-```
-OLLAMA_API_KEY=your_api_key_here
+```bash
+python setup.py
 ```
 
-The server will **not prompt** for a missing key.
-If the key is not set, the server will fail to start.
+The script will:
+
+* Ask for your **Ollama API key**
+* Ask for your **DuckDNS token** (a free dynamic DNS service where the server sends its current IP to the DNS so clients can always reach it using only the DNS name)
+* Create a minimal `.env` file automatically
+* Update your DuckDNS domain to the server’s current IP
+
+No manual editing required.
+
+### Example `.env` produced
+
+```
+OLLAMA_API_KEY=your_key_here
+```
 
 Clients do **not** require an API key.
 
@@ -49,17 +56,17 @@ Clients do **not** require an API key.
 
 ### Start the Server
 
-On the server machine:
-
 ```bash
 python server.py
 ```
 
 The server:
 
-* Loads the Ollama API key
-* Listens for incoming client connections
-* Manages agents and task assignment
+* Loads the API key from `.env`
+* Updates DNS via setup.py (run once before start)
+* Listens for clients
+* Creates one Agent per client
+* Assigns steps to idle agents
 
 ---
 
@@ -74,58 +81,53 @@ python client.py
 Each client:
 
 * Connects to the server
-* Captures the desktop screen
-* Executes actions sent by the server
+* Sends screenshots on demand
+* Executes steps sent by its Agent
 
-You can run multiple clients simultaneously.
+You may run as many clients as you want.
 
 ---
 
 ## How It Works
 
-Harmony follows a simple and predictable flow:
-
 1. Clients connect to the server
 2. The server registers one Agent per client
-3. Each Agent runs in its own persistent thread
-4. Agents wait idle until assigned a task
-5. A Manager loop assigns pending tasks to idle agents
-6. Agents execute actions through their client and return to idle
+3. Each Agent stays alive in its own thread
+4. Agents sit idle until given work
+5. A Manager loop assigns tasks to idle agents
+6. Agents execute the steps and report results
 
-If there are more tasks than agents, tasks wait.
-If there are more agents than tasks, agents wait.
+More clients means more parallel execution.
 
 ---
 
 ## Architecture Overview
 
-* **Server**
+### Server
 
-  * Runs the AI model and planning logic
-  * Tracks connected agents
-  * Assigns tasks to idle agents
+* Hosts all planning and AI logic
+* Tracks and manages agents
+* Distributes tasks
 
-* **Clients**
+### Clients
 
-  * Perform execution only
-  * Handle input events and screenshots
-  * Do not plan or coordinate
+* Execute actions only
+* Capture screens
+* Send results back to the server
 
-* **Agents**
+### Agents
 
-  * Server-side representations of clients
-  * One per connected client
-  * Persistent and reusable
+* Server-side representations of each client
+* One per connection
+* Persistent workers
 
-* **Manager**
+### Manager
 
-  * Runs in its own thread
-  * Matches idle agents with pending tasks
-  * Does not execute tasks directly
+* Matches idle agents with pending tasks
+* Runs independently from agents and clients
 
 ---
 
 ## Ready
 
-After configuration and startup, Harmony is ready to coordinate and automate multiple desktops from a single centralized server.
-
+Once setup and running, Harmony becomes a centralized command system that coordinates and automates multiple desktops at once.
