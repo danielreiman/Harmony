@@ -6,14 +6,14 @@ agents = {}
 tasks = []
 
 def main():
-    os.makedirs("server/runtime", exist_ok=True)
+    os.makedirs("/runtime", exist_ok=True)
 
     manager = Manager(agents, tasks)
 
     threading.Thread(target=manager.activate).start()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind(("localhost", 8080))
+    sock.bind(("0.0.0.0", 1234))
     sock.listen()
 
     print("Server listening on port 8080")

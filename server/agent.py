@@ -4,7 +4,7 @@ import config
 from prompts import MAIN_PROMPT
 from helpers import *
 
-BASE_SCREENSHOT_DIR = "server/runtime/"
+BASE_SCREENSHOT_DIR = "/runtime/"
 MAX_HISTORY = 10
 
 class Agent:
