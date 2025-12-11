@@ -36,20 +36,9 @@ python setup.py
 The script will:
 
 * Ask for your **Ollama API key**
-* Ask for your **DuckDNS token** (a free dynamic DNS service where the server sends its current IP to the DNS so clients can always reach it using only the DNS name)
 * Create a minimal `.env` file automatically
-* Update your DuckDNS domain to the server’s current IP
 
 No manual editing required.
-
-### Example `.env` produced
-
-```
-OLLAMA_API_KEY=your_key_here
-```
-
-Clients do **not** require an API key.
-
 ---
 
 ## Running Harmony
@@ -63,7 +52,6 @@ python server.py
 The server:
 
 * Loads the API key from `.env`
-* Updates DNS via setup.py (run once before start)
 * Listens for clients
 * Creates one Agent per client
 * Assigns steps to idle agents
@@ -129,6 +117,4 @@ More clients means more parallel execution.
 ---
 
 ## Ready
-
-
 Once setup and running, Harmony becomes a centralized command system that coordinates and automates multiple desktops at once.

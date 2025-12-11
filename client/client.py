@@ -1,18 +1,15 @@
-import socket
-from pathlib import Path
+import socket, os
 from helpers import *
 
-SERVER_HOST = "harmony-server.duckdns.org"
-SERVER_PORT = 1234
+SERVER_HOST = discover()
+SERVER_PORT = 1222
 
 def main():
+    os.makedirs("./runtime", exist_ok=True)
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((SERVER_HOST, SERVER_PORT))
     print("[CLIENT] Connected to server")
-
-    screenshot_path = Path("/runtime/screenshot.png")
-    screenshot_path.parent.mkdir(exist_ok=True)
-
     try:
         while True:
             msg = recv_json(sock)
@@ -23,8 +20,10 @@ def main():
 
             # ======== SEND SCREENSHOT ========
             if msg_type == "request_screenshot":
-                pyautogui.screenshot(str(screenshot_path))
-                send_file(sock, screenshot_path)
+                screenshot = pyautogui.screenshot()
+                screenshot.save("./runtime/screenshot.png")
+
+                send_file(sock, "./runtime/screenshot.png")
 
             # ======== EXECUTE STEP ========
             elif msg_type == "execute_step":

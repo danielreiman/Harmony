@@ -1,4 +1,13 @@
-import pyautogui, json, time
+import pyautogui, json, time, socket
+
+def discover():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.bind(("", 5051))
+
+    while True:
+        msg, addr = s.recvfrom(1024)
+        if msg == b"HARMONY_SERVER":
+            return addr[0]
 
 def normalize_coordinate(coordinate, viewport):
     if coordinate is None or len(coordinate) != 2:
