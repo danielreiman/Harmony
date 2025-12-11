@@ -3,14 +3,14 @@ from pathlib import Path
 from helpers import *
 
 SERVER_HOST = "harmony-server.duckdns.org"
-SERVER_PORT = 8080
+SERVER_PORT = 1234
 
 def main():
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((SERVER_HOST, SERVER_PORT))
     print("[CLIENT] Connected to server")
 
-    screenshot_path = Path("client/runtime/screenshot.png")
+    screenshot_path = Path("/runtime/screenshot.png")
     screenshot_path.parent.mkdir(exist_ok=True)
 
     try:
