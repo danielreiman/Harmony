@@ -14,6 +14,7 @@ def main():
 
     # Start Manager
     manager = Manager(agents, tasks)
+    threading.Thread(target=manager.ask(), daemon=True).start()
     threading.Thread(target=manager.activate, daemon=True).start()
 
     # Start agent TCP server
