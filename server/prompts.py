@@ -101,3 +101,22 @@ SUMMARY
 - One action per response.
 - Output JSON only. Do not include extra text.
 """
+
+TASK_SPLIT_PROMPT = """
+Break the following task into small, independent subtasks that can be executed on separate machines and later combined into a single final result.
+Return only a JSON list of strings.
+
+Example:
+Task: Create a comprehensive research report on climate change impacts
+Output: [
+  "Gather scientific articles from source A",
+  "Collect climate datasets from source B",
+  "Extract key findings from each article",
+  "Clean and preprocess all climate datasets",
+  "Run statistical analysis on each dataset",
+  "Generate visualizations for each dataset"
+]
+
+(Combining these pieces into a final report happens in a separate stage.)
+"""
+
