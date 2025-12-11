@@ -4,7 +4,7 @@ import config
 from prompts import MAIN_PROMPT
 from helpers import *
 
-BASE_SCREENSHOT_DIR = "/runtime/"
+BASE_SCREENSHOT_DIR = "./runtime/"
 MAX_HISTORY = 10
 
 class Agent:
@@ -79,8 +79,8 @@ class Agent:
             # ================= EXECUTION AND FEEDBACK =================
             send({
                 "type": "execute_step",
-                "step": step
-            })
+                "step": step,
+            }, self.conn)
 
             response = recv(self.conn)
             success = response.get("success", False)
@@ -94,7 +94,7 @@ class Agent:
         print("[LOG] Program finished.")
 
     def think(self, messages):
-        trimmed = [messages[:2]] + messages[-MAX_HISTORY:]
+        trimmed = messages[:2] + messages[-MAX_HISTORY:]
 
         result = self.client.chat(model=self.model_name, messages=trimmed)
         raw = result["message"]["content"].strip()

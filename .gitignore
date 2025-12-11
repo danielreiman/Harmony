@@ -8,6 +8,7 @@ server/.env
 
 # Runtime generated files and folders
 server/runtime/
+client/runtime/
 
 # Python cache and others
 __pycache__/
