@@ -1,3 +1,6 @@
+> [!NOTE]  
+> To use the single agent version of Harmony without the orchestrator, parallel agents, or the central server, switch to the `single-agent` branch.
+
 # Harmony Project
 
 Harmony lets you give one goal and watch it unfold across multiple computers.
