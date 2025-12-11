@@ -1,5 +1,5 @@
 > [!NOTE]  
-> To use the orchestrator version of Harmony, which includes a central server, multiple clients, parallel agents, and a manager for coordinated execution, switch to the distributed-executor branch.
+> To use the orchestrator version of Harmony, which includes a central server, multiple clients, parallel agents, and a manager for coordinated execution, switch to the `distributed-execution` branch.
 
 # Harmony Desktop Agent
 
