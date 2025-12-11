@@ -38,7 +38,6 @@ The script will:
 * Ask for your **Ollama API key**
 * Create a minimal `.env` file automatically
 
-No manual editing required.
 ---
 
 ## Running Harmony
