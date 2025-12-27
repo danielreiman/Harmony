@@ -8,10 +8,12 @@ BASE_SCREENSHOT_DIR = "./runtime/"
 MAX_HISTORY = 10
 
 class Agent:
-    def __init__(self, id, model_name, conn):
+    def __init__(self, id, model_name, conn, cleanup_callback=None):
         self.id = id
         self.model_name = model_name
         self.conn = conn
+        self.cleanup_callback = cleanup_callback
+        self.shutdown_requested = False
 
         self.status = "idle"
         self.task = None
@@ -39,19 +41,26 @@ class Agent:
         self.broadcast("Idle")
 
     def activate(self):
-        while True:
-            self.event.wait()
-            self.event.clear()
+        try:
+            while not self.shutdown_requested:
+                self.event.wait(timeout=1.0)
+                if self.shutdown_requested:
+                    break
+                
+                if self.event.is_set():
+                    self.event.clear()
+                    print(f"[Agent {self.id}] Task received:", self.task)
+                    self.run()
 
-            print(f"[Agent {self.id}] Task received:", self.task)
-            self.run()
-
-            self.task = None
-            self.status = "idle"
-            self.step = {}
-            self.broadcast("Idle")
-
-            print(f"[Agent {self.id}] Returned to idle\n")
+                    self.task = None
+                    self.status = "idle"
+                    self.step = {}
+                    self.broadcast("Idle")
+                    print(f"[Agent {self.id}] Returned to idle\n")
+        except Exception as e:
+            print(f"[Agent {self.id}] Error in activate: {e}")
+        finally:
+            self.cleanup()
 
     def assign(self, task: str):
         self.task = task
@@ -64,11 +73,17 @@ class Agent:
         self.event.set()
 
     def run(self):
-        while self.status == "working" and self.task:
+        while self.status == "working" and self.task and not self.shutdown_requested:
             # ================= VISION =================
             self.broadcast("Looking...")
-            send({"type": "request_screenshot"}, self.conn)
-            recv_file(self.screenshot_path, self.conn)
+            if not send({"type": "request_screenshot"}, self.conn):
+                print(f"[Agent {self.id}] Connection lost during screenshot request")
+                self.shutdown_requested = True
+                break
+            if not recv_file(self.screenshot_path, self.conn):
+                print(f"[Agent {self.id}] Connection lost during screenshot transfer")
+                self.shutdown_requested = True
+                break
 
             self.history.append({
                 "role": "user",
@@ -100,8 +115,15 @@ class Agent:
                 break
 
             # ================= EXECUTION AND FEEDBACK =================
-            send({"type": "execute_step", "step": step}, self.conn)
+            if not send({"type": "execute_step", "step": step}, self.conn):
+                print(f"[Agent {self.id}] Connection lost during step execution")
+                self.shutdown_requested = True
+                break
             response = recv(self.conn)
+            if not response:
+                print(f"[Agent {self.id}] Client disconnected")
+                self.shutdown_requested = True
+                break
             success = response.get("success", False)
 
             self.step["success"] = success
@@ -109,8 +131,9 @@ class Agent:
 
             time.sleep(1)
 
-        self.broadcast("Program finished")
-        print("[LOG] Program finished.")
+        if not self.shutdown_requested:
+            self.broadcast("Program finished")
+            print("[LOG] Program finished.")
 
     def think(self, messages):
         trimmed = messages[:2] + messages[-MAX_HISTORY:]
@@ -143,4 +166,24 @@ class Agent:
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(json.dumps(data, ensure_ascii=False, separators=(",", ":")))
         os.replace(tmp, self.state_path)
+
+    def shutdown(self):
+        self.shutdown_requested = True
+        self.event.set()
+        try:
+            self.conn.close()
+        except:
+            pass
+
+    def cleanup(self):
+        try:
+            if os.path.exists(self.state_path):
+                os.remove(self.state_path)
+            if os.path.exists(self.screenshot_path):
+                os.remove(self.screenshot_path)
+        except Exception as e:
+            print(f"[Agent {self.id}] Cleanup error: {e}")
+        
+        if self.cleanup_callback:
+            self.cleanup_callback(self.id)
 

@@ -9,6 +9,11 @@ def main():
 
     os.makedirs("./runtime", exist_ok=True)
 
+    def cleanup_agent(agent_id):
+        if agent_id in agents:
+            print(f"[Server] Cleaning up agent: {agent_id}")
+            del agents[agent_id]
+
     # Start LAN discovery broadcast
     threading.Thread(target=broadcast, daemon=True).start()
 
@@ -34,7 +39,8 @@ def main():
         agent = Agent(
             id=agent_id,
             model_name="qwen3-vl:235b-instruct-cloud",
-            conn=conn
+            conn=conn,
+            cleanup_callback=cleanup_agent
         )
 
         threading.Thread(

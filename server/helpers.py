@@ -9,19 +9,36 @@ def broadcast():
         time.sleep(1)
 
 def send(obj, conn):
-    conn.sendall(json.dumps(obj).encode())
+    try:
+        conn.sendall(json.dumps(obj).encode())
+        return True
+    except (ConnectionError, BrokenPipeError, OSError):
+        return False
 
 def recv(conn):
-    data = conn.recv(4096)
-    return json.loads(data.decode()) if data else None
+    try:
+        data = conn.recv(4096)
+        if not data:
+            return None
+        return json.loads(data.decode())
+    except (ConnectionError, BrokenPipeError, OSError, json.JSONDecodeError):
+        return None
 
 def recv_file(path, conn):
-    size = int.from_bytes(conn.recv(8), "big")
-    data = b""
-    while len(data) < size:
-        data += conn.recv(4096)
+    try:
+        size_bytes = conn.recv(8)
+        if len(size_bytes) < 8:
+            return False
+        size = int.from_bytes(size_bytes, "big")
+        data = b""
+        while len(data) < size:
+            chunk = conn.recv(min(4096, size - len(data)))
+            if not chunk:
+                return False
+            data += chunk
 
-    with open(path, "wb") as f:
-        f.write(data)
-
-    return True
+        with open(path, "wb") as f:
+            f.write(data)
+        return True
+    except (ConnectionError, BrokenPipeError, OSError):
+        return False
