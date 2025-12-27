@@ -5,7 +5,7 @@ def broadcast():
     s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
     while True:
-        s.sendto(b"HARMONY_SERVER", ("255.255.255.255", 5051))
+        s.sendto(b"HARMONY_SERVER", ("255.255.255.255", 3030))
         time.sleep(1)
 
 def send(obj, conn):

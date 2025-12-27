@@ -5,7 +5,7 @@ from manager import Manager
 
 def main():
     agents = {}
-    tasks = [""]
+    tasks = ["Open the first ever youtube video"]
 
     os.makedirs("./runtime", exist_ok=True)
 
@@ -14,7 +14,7 @@ def main():
 
     # Start Manager
     manager = Manager(agents, tasks)
-    threading.Thread(target=manager.ask(), daemon=True).start()
+    # threading.Thread(target=manager.ask, daemon=True).start()
     threading.Thread(target=manager.activate, daemon=True).start()
 
     # Start agent TCP server
@@ -36,12 +36,13 @@ def main():
             model_name="qwen3-vl:235b-instruct-cloud",
             conn=conn
         )
-        agents[agent_id] = agent
 
         threading.Thread(
             target=agent.activate,
             daemon=True
+
         ).start()
+        agents[agent_id] = agent
 
 if __name__ == "__main__":
     main()
