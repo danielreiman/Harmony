@@ -1,5 +1,6 @@
 import time, json, threading, os
 from ollama import Client
+
 import config
 from prompts import MAIN_PROMPT
 from helpers import *
@@ -13,7 +14,6 @@ class Agent:
         self.model_name = model_name
         self.conn = conn
         self.cleanup_callback = cleanup_callback
-        self.shutdown_requested = False
 
         self.status = "idle"
         self.task = None
@@ -41,26 +41,14 @@ class Agent:
         self.broadcast("Idle")
 
     def activate(self):
-        try:
-            while not self.shutdown_requested:
-                self.event.wait(timeout=1.0)
-                if self.shutdown_requested:
-                    break
-                
-                if self.event.is_set():
-                    self.event.clear()
-                    print(f"[Agent {self.id}] Task received:", self.task)
-                    self.run()
-
-                    self.task = None
-                    self.status = "idle"
-                    self.step = {}
-                    self.broadcast("Idle")
-                    print(f"[Agent {self.id}] Returned to idle\n")
-        except Exception as e:
-            print(f"[Agent {self.id}] Error in activate: {e}")
-        finally:
-            self.cleanup()
+        while True:
+            try:
+                self.event.wait()
+                self.event.clear()
+                if not self.run(): break
+                self.status = "idle"
+            except: break
+        self.cleanup()
 
     def assign(self, task: str):
         self.task = task
@@ -73,67 +61,49 @@ class Agent:
         self.event.set()
 
     def run(self):
-        while self.status == "working" and self.task and not self.shutdown_requested:
-            # ================= VISION =================
+        while self.status == "working" and self.task:
+            # =========== Vision ===========
             self.broadcast("Looking...")
-            if not send({"type": "request_screenshot"}, self.conn):
-                print(f"[Agent {self.id}] Connection lost during screenshot request")
-                self.shutdown_requested = True
-                break
-            if not recv_file(self.screenshot_path, self.conn):
-                print(f"[Agent {self.id}] Connection lost during screenshot transfer")
-                self.shutdown_requested = True
-                break
+            request_sent = send({"type": "request_screenshot"}, self.conn)
+            if not request_sent:
+                return False
 
-            self.history.append({
-                "role": "user",
-                "content": "Current view",
-                "images": [self.screenshot_path]
-            })
+            screenshot_received = recv_file(self.screenshot_path, self.conn)
+            if not screenshot_received:
+                return False
 
-            # ================= AI =================
+            self.history.append({"role": "user", "content": "Current view", "images": [self.screenshot_path]})
+
+            # =========== Brain ===========
             self.broadcast("Thinking...")
             step, raw_ai_message = self.think(self.history)
-
+            
             if self.history and "images" in self.history[-1]:
                 self.history[-1].pop("images", None)
-
             self.history.append({"role": "assistant", "content": raw_ai_message})
 
-            self.step = {
-                "reasoning": step.get("Reasoning"),
-                "action": step.get("Next Action"),
-                "coordinate": step.get("Coordinate"),
-                "value": step.get("Value"),
-            }
-
-            self.broadcast("Executing...")
+            self.step = {"reasoning": step.get("Reasoning"), "action": step.get("Next Action"), "coordinate": step.get("Coordinate"), "value": step.get("Value")}
 
             if self.step["action"] in [None, "None"]:
                 self.status = "idle"
                 self.broadcast("Done")
-                break
+                return True
 
-            # ================= EXECUTION AND FEEDBACK =================
-            if not send({"type": "execute_step", "step": step}, self.conn):
-                print(f"[Agent {self.id}] Connection lost during step execution")
-                self.shutdown_requested = True
-                break
+            # =========== Execution ===========
+            self.broadcast("Executing...")
+            step_sent = send({"type": "execute_step", "step": step}, self.conn)
+            if not step_sent:
+                return False
+
             response = recv(self.conn)
-            if not response:
-                print(f"[Agent {self.id}] Client disconnected")
-                self.shutdown_requested = True
-                break
-            success = response.get("success", False)
+            if not response: return False
 
-            self.step["success"] = success
+            self.step["success"] = response.get("success", False)
             self.broadcast(self.status_text)
-
             time.sleep(1)
-
-        if not self.shutdown_requested:
-            self.broadcast("Program finished")
-            print("[LOG] Program finished.")
+        
+        self.broadcast("Program finished")
+        return True
 
     def think(self, messages):
         trimmed = messages[:2] + messages[-MAX_HISTORY:]
@@ -167,13 +137,6 @@ class Agent:
             f.write(json.dumps(data, ensure_ascii=False, separators=(",", ":")))
         os.replace(tmp, self.state_path)
 
-    def shutdown(self):
-        self.shutdown_requested = True
-        self.event.set()
-        try:
-            self.conn.close()
-        except:
-            pass
 
     def cleanup(self):
         try:

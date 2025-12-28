@@ -22,6 +22,7 @@ def index():
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Harmony</title>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 
 <style>
 :root{
@@ -419,6 +420,163 @@ body{
   transform:rotate(45deg);
 }
 
+/* ================= REASONING PANEL ================= */
+
+.reasoningPanel{
+  position:absolute;
+  top:390px;
+  left:0;
+  right:0;
+  background:rgba(255, 255, 255, 0.98);
+  backdrop-filter:blur(16px);
+  border:1px solid var(--border);
+  border-radius:16px;
+  box-shadow:0 8px 32px rgba(0, 0, 0, 0.12);
+  padding:16px 20px 32px;
+  transform:translateY(0);
+  transition:all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index:30;
+  max-height:130px;
+  overflow:hidden;
+  width:380px;
+}
+
+.reasoningPanel.visible{
+  transform:translateY(0);
+}
+
+
+.reasoningPanelHeader{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  margin-bottom:12px;
+  padding-bottom:8px;
+  border-bottom:1px solid var(--soft);
+}
+
+.reasoningPanelTitle{
+  font-size:12px;
+  font-weight:600;
+  color:var(--accent);
+  text-transform:uppercase;
+  letter-spacing:0.5px;
+}
+
+.reasoningPanelIcon{
+  width:16px;
+  height:16px;
+  color:var(--accent);
+}
+
+.showAllBtn{
+  font-size:11px;
+  color:var(--muted);
+  background:none;
+  border:none;
+  cursor:pointer;
+  padding:4px 8px;
+  border-radius:8px;
+  transition:var(--transition);
+  text-transform:uppercase;
+  letter-spacing:0.3px;
+  font-weight:600;
+}
+
+.showAllBtn:hover{
+  background:var(--soft);
+  color:var(--accent);
+}
+
+.reasoningPanelText{
+  font-size:13px;
+  line-height:1.4;
+  color:var(--text);
+  margin:0;
+  display:-webkit-box;
+  -webkit-line-clamp:2;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+}
+
+.reasoningPanelAction{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  margin-top:8px;
+  font-size:11px;
+  color:var(--muted);
+  opacity:0.8;
+}
+
+.reasoningActionIcon{
+  width:14px;
+  height:14px;
+  color:var(--muted);
+}
+
+.cursorPosition{
+  position:absolute;
+  width:4px;
+  height:4px;
+  background:var(--accent);
+  border-radius:50%;
+  transform:translate(-50%, -50%);
+  z-index:99;
+  box-shadow:0 0 0 2px rgba(255, 255, 255, 0.8), 0 0 8px rgba(139, 111, 71, 0.6);
+  animation:pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.8), 0 0 8px rgba(139, 111, 71, 0.6); }
+  50% { box-shadow: 0 0 0 6px rgba(139, 111, 71, 0.3), 0 0 16px rgba(139, 111, 71, 0.4); }
+}
+
+/* ================= TASK STATUS PANEL ================= */
+
+.taskStatusPanel{
+  position:absolute;
+  top:0px;
+  right:-300px;
+  transform:translateY(0);
+  background:rgba(255,255,255,0.98);
+  backdrop-filter:blur(16px);
+  border:1px solid var(--border);
+  border-radius:16px;
+  box-shadow:var(--shadow);
+  padding:16px 20px;
+  z-index:20;
+  min-width:220px;
+  max-width:280px;
+  transition:var(--transition);
+}
+
+.taskStatusPanel:hover{
+  transform:translateY(-2px) translateX(-4px);
+  box-shadow:var(--shadow-hover);
+  border-color:var(--accent);
+}
+
+.taskStatusContent{
+  text-align:left;
+}
+
+.taskStatusLabel{
+  font-size:11px;
+  font-weight:700;
+  color:var(--muted);
+  text-transform:uppercase;
+  letter-spacing:0.5px;
+  margin-bottom:6px;
+}
+
+.taskStatusText{
+  font-size:13px;
+  font-weight:600;
+  color:var(--text);
+  line-height:1.4;
+}
+
 /* ================= FLOATING ACTIONS ================= */
 
 .floatingActions{
@@ -468,6 +626,231 @@ body{
 .actionButton.primary:hover{
   background:#7a5f3f;
   color:white;
+}
+
+/* ================= SINGLE VIEW EMPTY STATE ================= */
+
+.singleEmptyState{
+  position:absolute;
+  top:0;
+  left:0;
+  right:0;
+  bottom:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:linear-gradient(135deg, var(--soft) 0%, var(--bg) 100%);
+  border-radius:0 0 20px 20px;
+}
+
+.singleEmptyContent{
+  text-align:center;
+  padding:40px 20px;
+}
+
+.singleEmptyIcon{
+  width:48px;
+  height:48px;
+  color:var(--muted);
+  opacity:0.6;
+  margin-bottom:20px;
+}
+
+.singleEmptyTitle{
+  font-size:20px;
+  font-weight:700;
+  color:var(--text);
+  margin-bottom:8px;
+}
+
+.singleEmptyText{
+  font-size:14px;
+  color:var(--muted);
+  margin-bottom:24px;
+}
+
+.singleEmptyButton{
+  height:40px;
+  padding:0 20px;
+  border-radius:20px;
+  border:1px solid var(--accent);
+  background:var(--accent);
+  color:white;
+  cursor:pointer;
+  transition:var(--transition);
+  font-size:14px;
+  font-weight:600;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+}
+
+.singleEmptyButton:hover{
+  background:#7a5f3f;
+  border-color:#7a5f3f;
+  transform:translateY(-1px);
+  box-shadow:0 4px 12px rgba(139,111,71,0.3);
+}
+
+/* ================= EMPTY STATE VIEW ================= */
+
+.emptyState{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  min-height:600px;
+  padding:80px 40px;
+  flex:1;
+}
+
+.emptyStateContent{
+  text-align:center;
+  max-width:600px;
+  padding:60px 40px;
+  background:rgba(255,255,255,0.7);
+  border:1px solid var(--border);
+  border-radius:24px;
+  backdrop-filter:blur(12px);
+  box-shadow:0 20px 60px rgba(0,0,0,0.08);
+}
+
+.emptyStateIcon{
+  position:relative;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  margin-bottom:32px;
+}
+
+.emptyStateIconLarge{
+  width:64px;
+  height:64px;
+  color:var(--accent);
+  opacity:0.8;
+}
+
+.emptyStateIconPlus{
+  width:24px;
+  height:24px;
+  color:var(--accent);
+  position:absolute;
+  top:-8px;
+  right:-8px;
+  background:var(--panel);
+  border-radius:50%;
+  padding:4px;
+  box-shadow:0 2px 8px rgba(0,0,0,0.1);
+}
+
+.emptyStateTitle{
+  font-size:32px;
+  font-weight:700;
+  color:var(--text);
+  margin-bottom:12px;
+  letter-spacing:-0.02em;
+}
+
+.emptyStateSubtitle{
+  font-size:18px;
+  color:var(--muted);
+  margin-bottom:48px;
+  line-height:1.5;
+  font-weight:500;
+}
+
+.emptyStateInstructions{
+  display:flex;
+  flex-direction:column;
+  gap:24px;
+  margin-bottom:40px;
+  text-align:left;
+}
+
+.emptyStateStep{
+  display:flex;
+  align-items:flex-start;
+  gap:20px;
+  padding:20px 24px;
+  background:rgba(255,255,255,0.6);
+  border:1px solid var(--soft);
+  border-radius:16px;
+  transition:var(--transition);
+}
+
+.emptyStateStep:hover{
+  transform:translateY(-2px);
+  box-shadow:0 8px 20px rgba(0,0,0,0.1);
+  border-color:var(--accent);
+}
+
+.emptyStateStepNumber{
+  width:32px;
+  height:32px;
+  background:var(--accent);
+  color:white;
+  border-radius:50%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-weight:700;
+  font-size:14px;
+  flex-shrink:0;
+  margin-top:2px;
+}
+
+.emptyStateStepContent{
+  flex:1;
+}
+
+.emptyStateStepTitle{
+  font-size:16px;
+  font-weight:700;
+  color:var(--text);
+  margin-bottom:4px;
+}
+
+.emptyStateStepText{
+  font-size:14px;
+  color:var(--muted);
+  line-height:1.5;
+}
+
+.emptyStateStepText code{
+  background:rgba(139,111,71,0.1);
+  color:var(--accent);
+  padding:2px 6px;
+  border-radius:4px;
+  font-family:ui-monospace, "SF Mono", Monaco, monospace;
+  font-size:13px;
+  font-weight:600;
+}
+
+.emptyStateFooter{
+  margin-top:32px;
+  padding-top:24px;
+  border-top:1px solid var(--soft);
+}
+
+.emptyStateNote{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:12px;
+  padding:16px 20px;
+  background:rgba(139,111,71,0.05);
+  border:1px solid rgba(139,111,71,0.1);
+  border-radius:12px;
+  color:var(--muted);
+  font-size:14px;
+  line-height:1.5;
+  font-style:italic;
+}
+
+.emptyStateNoteIcon{
+  width:18px;
+  height:18px;
+  color:var(--accent);
+  flex-shrink:0;
 }
 
 /* ================= SUPERVISOR VIEW ================= */
@@ -565,7 +948,8 @@ body{
   display:flex;
   flex-direction:column;
   justify-content:flex-start;
-  overflow:hidden;
+  overflow-y:auto;
+  overflow-x:hidden;
 }
 
 .supervisorView.active{
@@ -636,16 +1020,230 @@ body{
   letter-spacing:0.5px;
 }
 
+/* ================= CONNECTION OVERLAY ================= */
+
+.connectionOverlay{
+  position:fixed;
+  top:0;
+  left:0;
+  right:0;
+  bottom:0;
+  background:linear-gradient(135deg, var(--bg) 0%, #f0ebe0 50%, var(--soft) 100%);
+  z-index:2000;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  padding:20px;
+  overflow-y:auto;
+}
+
+.connectionOverlay.active{
+  display:flex;
+}
+
+.connectionOverlayContent{
+  background:rgba(255,255,255,0.95);
+  backdrop-filter:blur(20px);
+  border:1px solid var(--border);
+  border-radius:20px;
+  box-shadow:0 24px 48px rgba(0,0,0,0.12);
+  padding:48px;
+  max-width:750px;
+  width:100%;
+  text-align:center;
+  animation:overlayFadeIn 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  max-height:90vh;
+  overflow-y:auto;
+  position:relative;
+}
+
+@media (max-width: 768px) {
+  .connectionOverlayContent{
+    padding:30px 20px;
+    margin:10px;
+  }
+}
+
+@keyframes overlayFadeIn {
+  from { opacity: 0; transform: translateY(20px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.connectionOverlayHeader{
+  margin-bottom:32px;
+}
+
+.connectionOverlayIcon{
+  margin-bottom:16px;
+}
+
+.connectionOverlayIconMain{
+  width:56px;
+  height:56px;
+  color:var(--accent);
+  opacity:1;
+}
+
+.connectionOverlayTitle{
+  font-size:32px;
+  font-weight:700;
+  color:var(--text);
+  margin-bottom:8px;
+  letter-spacing:-0.02em;
+}
+
+@media (max-width: 768px) {
+  .connectionOverlayTitle{
+    font-size:28px;
+  }
+}
+
+.connectionOverlaySubtitle{
+  font-size:18px;
+  color:var(--muted);
+  font-weight:500;
+}
+
+@media (max-width: 768px) {
+  .connectionOverlaySubtitle{
+    font-size:16px;
+  }
+}
+
+.connectionOverlayBody{
+  margin-bottom:0;
+}
+
+.connectionInstructions{
+  display:flex;
+  flex-direction:column;
+  gap:20px;
+  margin-bottom:0;
+}
+
+.connectionStep{
+  display:flex;
+  align-items:flex-start;
+  gap:20px;
+  padding:24px;
+  background:rgba(255,255,255,0.9);
+  border:1px solid rgba(228,222,212,0.6);
+  border-radius:16px;
+  transition:var(--transition);
+  text-align:left;
+  position:relative;
+  overflow:hidden;
+}
+
+
+.connectionStepNumber{
+  width:36px;
+  height:36px;
+  background:var(--accent);
+  color:white;
+  border-radius:50%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-weight:700;
+  font-size:16px;
+  flex-shrink:0;
+}
+
+.connectionStepContent{
+  flex:1;
+}
+
+.connectionStepTitle{
+  font-size:16px;
+  font-weight:700;
+  color:var(--text);
+  margin-bottom:4px;
+}
+
+.connectionStepCommand{
+  font-family:ui-monospace, "SF Mono", Monaco, monospace;
+  font-size:14px;
+  font-weight:600;
+  color:var(--accent);
+  background:rgba(139,111,71,0.1);
+  padding:6px 10px;
+  border-radius:6px;
+  margin-bottom:6px;
+  display:inline-block;
+  border:1px solid rgba(139,111,71,0.2);
+}
+
+.connectionStepDescription{
+  font-size:14px;
+  color:var(--muted);
+  line-height:1.5;
+}
+
+.connectionTip{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  padding:16px 20px;
+  background:rgba(139,111,71,0.05);
+  border:1px solid rgba(139,111,71,0.1);
+  border-radius:10px;
+  text-align:left;
+  margin-top:16px;
+}
+
+.connectionTipIcon{
+  width:20px;
+  height:20px;
+  color:var(--accent);
+  flex-shrink:0;
+}
+
+.connectionTipContent{
+  font-size:14px;
+  color:var(--muted);
+  line-height:1.5;
+}
+
+.connectionOverlayFooter{
+  padding-top:32px;
+  border-top:1px solid var(--soft);
+}
+
+.connectionStatus{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:12px;
+  font-size:14px;
+  color:var(--muted);
+  font-weight:500;
+}
+
+.connectionStatusDot{
+  width:8px;
+  height:8px;
+  background:var(--accent);
+  border-radius:50%;
+  animation:pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
 .agentsGrid{
   display:flex;
   gap:40px;
-  padding:40px 40px 0;
+  padding:40px 40px 160px;
   overflow-x:auto;
-  overflow-y:hidden;
+  overflow-y:visible;
   flex:none;
   align-items:flex-start;
   scroll-behavior:smooth;
   height:auto;
+  min-height:600px;
 }
 
 .agentsGrid::-webkit-scrollbar{
@@ -679,6 +1277,7 @@ body{
   flex-shrink:0;
   width:380px;
   height:380px;
+  margin-bottom:140px;
 }
 
 .agentTile::before{
@@ -926,6 +1525,249 @@ body{
   background:rgba(139,133,123,0.95);
 }
 
+
+/* ================= CUSTOM ALERT MODAL ================= */
+
+.customAlert{
+  position:fixed;
+  top:0;
+  left:0;
+  right:0;
+  bottom:0;
+  background:rgba(0,0,0,0.4);
+  backdrop-filter:blur(8px);
+  z-index:1500;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  opacity:0;
+  transition:all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.customAlert.open{
+  display:flex;
+  opacity:1;
+}
+
+.customAlertContent{
+  background:var(--panel);
+  border:1px solid var(--border);
+  border-radius:20px;
+  box-shadow:0 20px 60px rgba(0,0,0,0.15);
+  padding:0;
+  max-width:500px;
+  width:90%;
+  max-height:70vh;
+  overflow:hidden;
+  transform:translateY(20px) scale(0.95);
+  transition:var(--transition);
+}
+
+.customAlert.open .customAlertContent{
+  transform:translateY(0) scale(1);
+}
+
+.customAlertHeader{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:24px 28px 20px;
+  border-bottom:1px solid var(--soft);
+  background:linear-gradient(135deg, var(--panel) 0%, var(--soft) 100%);
+  border-radius:20px 20px 0 0;
+}
+
+.customAlertTitleSection{
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+
+.customAlertIcon{
+  width:20px;
+  height:20px;
+  color:var(--accent);
+}
+
+.customAlertTitle{
+  font-size:18px;
+  font-weight:700;
+  color:var(--text);
+  margin:0;
+}
+
+
+.customAlertBody{
+  padding:20px 28px;
+  color:var(--text);
+  line-height:1.6;
+  max-height:40vh;
+  overflow-y:auto;
+  font-size:14px;
+}
+
+.customAlertBody::-webkit-scrollbar{
+  width:6px;
+}
+
+.customAlertBody::-webkit-scrollbar-track{
+  background:var(--soft);
+  border-radius:3px;
+}
+
+.customAlertBody::-webkit-scrollbar-thumb{
+  background:var(--border);
+  border-radius:3px;
+}
+
+.customAlertBody::-webkit-scrollbar-thumb:hover{
+  background:var(--accent);
+}
+
+.customAlertFooter{
+  padding:20px 28px 24px;
+  border-top:1px solid var(--soft);
+  background:var(--bg);
+  border-radius:0 0 20px 20px;
+  display:flex;
+  justify-content:flex-end;
+}
+
+.customAlertOk{
+  height:44px;
+  padding:0 24px;
+  border-radius:22px;
+  border:1px solid var(--accent);
+  background:var(--accent);
+  color:white;
+  cursor:pointer;
+  transition:var(--transition);
+  font-size:14px;
+  font-weight:600;
+  min-width:80px;
+}
+
+.customAlertOk:hover{
+  background:#7a5f3f;
+  border-color:#7a5f3f;
+  transform:translateY(-1px);
+  box-shadow:0 4px 12px rgba(139,111,71,0.3);
+}
+
+/* ================= REASONING MODAL ================= */
+
+.reasoningModal{
+  position:fixed;
+  top:0;
+  left:0;
+  right:0;
+  bottom:0;
+  background:rgba(0,0,0,0.4);
+  backdrop-filter:blur(8px);
+  z-index:1000;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  opacity:0;
+  transition:all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.reasoningModal.open{
+  display:flex;
+  opacity:1;
+}
+
+.reasoningModalContent{
+  background:var(--panel);
+  border:1px solid var(--border);
+  border-radius:20px;
+  box-shadow:0 20px 60px rgba(0,0,0,0.15);
+  padding:32px;
+  max-width:600px;
+  width:90%;
+  max-height:80vh;
+  overflow:auto;
+  transform:translateY(20px) scale(0.95);
+  transition:var(--transition);
+}
+
+.reasoningModal.open .reasoningModalContent{
+  transform:translateY(0) scale(1);
+}
+
+.reasoningModalHeader{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  margin-bottom:20px;
+  padding-bottom:16px;
+  border-bottom:1px solid var(--soft);
+}
+
+.reasoningModalTitleSection{
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+
+.reasoningModalIcon{
+  width:24px;
+  height:24px;
+  color:var(--accent);
+}
+
+.reasoningModalTitle{
+  font-size:24px;
+  font-weight:700;
+  color:var(--text);
+  margin:0;
+}
+
+.reasoningModalClose{
+  width:32px;
+  height:32px;
+  border-radius:50%;
+  border:none;
+  background:var(--soft);
+  color:var(--muted);
+  cursor:pointer;
+  transition:var(--transition);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:16px;
+}
+
+.reasoningModalClose:hover{
+  background:var(--accent);
+  color:white;
+  transform:scale(1.1);
+}
+
+.reasoningModalBody{
+  color:var(--text);
+  line-height:1.6;
+}
+
+.reasoningEntry{
+  padding:16px 20px;
+  background:var(--soft);
+  border-radius:12px;
+  margin:12px 0;
+  border-left:4px solid var(--accent);
+}
+
+.reasoningEntry .timestamp{
+  font-size:12px;
+  color:var(--muted);
+  font-weight:600;
+  margin-bottom:8px;
+}
+
+.reasoningEntry .content{
+  font-size:14px;
+  line-height:1.5;
+}
 
 /* ================= RESULTS MODAL ================= */
 
@@ -1282,7 +2124,7 @@ body{
   <div class="topRow">
     <div>
       <div class="brandTitle">Harmony</div>
-      <div class="brandSubtitle" id="taskLine">No active task</div>
+      <div class="brandSubtitle">Parallel Agents, One Purpose</div>
     </div>
 
     <div class="agentPicker">
@@ -1302,7 +2144,7 @@ body{
   </div>
 
   <div class="stage">
-    <div class="browserFrame">
+    <div class="browserFrame" style="position: relative;">
       <div class="browserTop">
         <div class="win red"></div>
         <div class="win yellow"></div>
@@ -1314,6 +2156,27 @@ body{
         <img id="screen" class="screenImg"/>
         <div class="statusCap" id="statusCap">Idle</div>
         <div class="thought hidden" id="thought"></div>
+        
+        <!-- Single View Empty State -->
+        <div class="singleEmptyState" id="singleEmptyState" style="display: none;">
+          <div class="singleEmptyContent">
+            <i data-lucide="monitor-off" class="singleEmptyIcon"></i>
+            <div class="singleEmptyTitle">No Agents Available</div>
+            <div class="singleEmptyText">Connect agents to start automation</div>
+            <button class="singleEmptyButton" onclick="switchView('supervisor')">
+              <i data-lucide="grid-3x3" style="width: 16px; height: 16px; margin-right: 8px;"></i>
+              View Supervisor Mode
+            </button>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Task Status Panel -->
+      <div class="taskStatusPanel" id="taskStatusPanel">
+        <div class="taskStatusContent">
+          <div class="taskStatusLabel">Current Task</div>
+          <div class="taskStatusText" id="taskStatusText">No active task</div>
+        </div>
       </div>
     </div>
   </div>
@@ -1324,7 +2187,7 @@ body{
   
   <div class="supervisorHeader">
     <div class="supervisorTitle">Agent Supervisor</div>
-    <div class="supervisorSubtitle">Monitor and manage all connected agents in real-time with intelligent task distribution</div>
+    <div class="supervisorSubtitle">Parallel Agents, One Purpose</div>
     
     <div class="supervisorStats" id="supervisorStats">
       <div class="supervisorStat">
@@ -1341,10 +2204,57 @@ body{
       </div>
     </div>
     
+    
   </div>
   
   <div class="agentsGrid" id="supervisorGrid">
     <!-- Agent tiles will be populated here -->
+  </div>
+  
+  <!-- Empty State View -->
+  <div class="emptyState" id="emptyState" style="display: none;">
+    <div class="emptyStateContent">
+      <div class="emptyStateIcon">
+        <i data-lucide="monitor" class="emptyStateIconLarge"></i>
+        <i data-lucide="plus" class="emptyStateIconPlus"></i>
+      </div>
+      
+      <div class="emptyStateTitle">No Agents Connected</div>
+      <div class="emptyStateSubtitle">Ready to orchestrate intelligent automation across your network</div>
+      
+      <div class="emptyStateInstructions">
+        <div class="emptyStateStep">
+          <div class="emptyStateStepNumber">1</div>
+          <div class="emptyStateStepContent">
+            <div class="emptyStateStepTitle">Launch Client</div>
+            <div class="emptyStateStepText">Run <code>python client/client.py</code> on target computers</div>
+          </div>
+        </div>
+        
+        <div class="emptyStateStep">
+          <div class="emptyStateStepNumber">2</div>
+          <div class="emptyStateStepContent">
+            <div class="emptyStateStepTitle">Auto-Discovery</div>
+            <div class="emptyStateStepText">Agents will automatically discover and connect to this server</div>
+          </div>
+        </div>
+        
+        <div class="emptyStateStep">
+          <div class="emptyStateStepNumber">3</div>
+          <div class="emptyStateStepContent">
+            <div class="emptyStateStepTitle">Deploy Tasks</div>
+            <div class="emptyStateStepText">Assign intelligent automation tasks to connected agents</div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="emptyStateFooter">
+        <div class="emptyStateNote">
+          <i data-lucide="info" class="emptyStateNoteIcon"></i>
+          <span>Each connected computer becomes an intelligent agent capable of autonomous task execution</span>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1382,6 +2292,73 @@ body{
       </div>
       
       <p>This comprehensive results view will help you analyze the effectiveness of your automation tasks and optimize future workflows.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Custom Alert Modal -->
+<div class="customAlert" id="customAlert">
+  <div class="customAlertContent">
+    <div class="customAlertHeader">
+      <div class="customAlertTitleSection">
+        <i data-lucide="message-square" class="customAlertIcon"></i>
+        <h3 class="customAlertTitle" id="customAlertTitle">Agent Reasoning</h3>
+      </div>
+    </div>
+    <div class="customAlertBody" id="customAlertBody">
+      <!-- Content will be populated by JavaScript -->
+    </div>
+    <div class="customAlertFooter">
+      <button class="customAlertOk" onclick="closeCustomAlert()">OK</button>
+    </div>
+  </div>
+</div>
+
+<!-- Full Screen Connection Overlay -->
+<div class="connectionOverlay" id="connectionOverlay">
+  <div class="connectionOverlayContent">
+    <div class="connectionOverlayHeader">
+      <div class="connectionOverlayIcon">
+        <i data-lucide="command" class="connectionOverlayIconMain"></i>
+      </div>
+      <div class="connectionOverlayTitle">Harmony Control Center</div>
+      <div class="connectionOverlaySubtitle">Connect agents to operate computers remotely</div>
+    </div>
+    
+    <div class="connectionOverlayBody">
+      <div class="connectionInstructions">
+        <div class="connectionStep">
+          <div class="connectionStepNumber">1</div>
+          <div class="connectionStepContent">
+            <div class="connectionStepTitle">Launch Terminal</div>
+            <div class="connectionStepDescription">Open Command Prompt (Windows) or Terminal (Mac/Linux) on the computer you want the agent to operate</div>
+          </div>
+        </div>
+        
+        <div class="connectionStep">
+          <div class="connectionStepNumber">2</div>
+          <div class="connectionStepContent">
+            <div class="connectionStepTitle">Deploy Agent</div>
+            <div class="connectionStepCommand">python client/client.py</div>
+            <div class="connectionStepDescription">Execute the command to deploy an agent that will operate this computer</div>
+          </div>
+        </div>
+        
+        <div class="connectionStep">
+          <div class="connectionStepNumber">3</div>
+          <div class="connectionStepContent">
+            <div class="connectionStepTitle">Agent Online</div>
+            <div class="connectionStepDescription">The agent will automatically connect and appear in your dashboard, ready to operate the computer based on your instructions.</div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="connectionTip">
+        <i data-lucide="lightbulb" class="connectionTipIcon"></i>
+        <div class="connectionTipContent">
+          <strong>Note:</strong> Deploy agents across multiple computers to operate an entire fleet from this central dashboard.
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -1450,7 +2427,7 @@ $("screen").onload=()=>{
 async function updateState(){
   if(!currentAgent) {
     $("agentValue").textContent="—"
-    $("taskLine").textContent="No active task"
+    $("taskStatusText").textContent="No active task"
     $("statusCap").textContent="Idle"
     $("actionTop").textContent="Select an agent..."
     $("thought").classList.add("hidden")
@@ -1463,7 +2440,7 @@ async function updateState(){
     
     const d=await r.json()
     $("agentValue").textContent=d.id||"—"
-    $("taskLine").textContent=d.task?`Task: ${d.task}`:"No active task"
+    $("taskStatusText").textContent=d.task||"No active task"
     $("statusCap").textContent=d.status_text||d.status||"Idle"
     $("actionTop").textContent=sentence(d.step)
 
@@ -1501,7 +2478,15 @@ async function fetchAgents(){
       emptyItem.style.fontStyle="italic"
       emptyItem.textContent="No agents connected"
       menu.appendChild(emptyItem)
+      
+      // Show connection overlay
+      showConnectionOverlay()
+      
       return
+    } else {
+      // Hide connection overlay when agents are available
+      hideConnectionOverlay()
+      hideSingleEmptyState()
     }
     
     agents.forEach(agent=>{
@@ -1748,11 +2733,25 @@ document.addEventListener('click', e => {
   if(e.target.id === 'resultsModal') {
     closeResultsModal()
   }
+  if(e.target.id === 'reasoningModal') {
+    closeReasoningModal()
+  }
+  if(e.target.id === 'customAlert') {
+    closeCustomAlert()
+  }
 })
 
 document.addEventListener('keydown', e => {
-  if(e.key === 'Escape' && $("resultsModal").classList.contains('open')) {
-    closeResultsModal()
+  if(e.key === 'Escape') {
+    if($("resultsModal").classList.contains('open')) {
+      closeResultsModal()
+    }
+    if($("reasoningModal").classList.contains('open')) {
+      closeReasoningModal()
+    }
+    if($("customAlert").classList.contains('open')) {
+      closeCustomAlert()
+    }
   }
 })
 
@@ -1897,10 +2896,22 @@ async function updateSupervisorGrid() {
     
     const agents = await r.json()
     const grid = $("supervisorGrid")
+    const emptyState = $("emptyState")
     
     if(agents.length === 0) {
       grid.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: var(--muted); font-size: 16px; font-style: italic;">No agents connected</div>`
+      emptyState.style.display = 'none'
+      
+      // Show connection overlay
+      showConnectionOverlay()
+      
       return
+    } else {
+      grid.style.display = 'flex'
+      emptyState.style.display = 'none'
+      
+      // Hide connection overlay
+      hideConnectionOverlay()
     }
     
     // Only fetch data for agents we don't have or need updates
@@ -1964,6 +2975,11 @@ function createAgentTile(agent, grid) {
   agentTileElements[agent.id] = tile
   updateAgentTileContent(agent, tile)
   grid.appendChild(tile)
+  
+  // Initialize Lucide icons
+  if (typeof lucide !== 'undefined') {
+    lucide.createIcons()
+  }
 }
 
 function updateAgentTile(agent) {
@@ -2020,7 +3036,7 @@ async function updateAgentTileContent(agent, tile) {
           <div class="agentMiniWin green"></div>
           <div class="agentMiniAddress">${agent.id}</div>
         </div>
-        <div class="agentMiniViewport">
+        <div class="agentMiniViewport" style="position: relative;">
           ${screenshotUrl ? 
             `<img src="${screenshotUrl}" class="agentTileScreenImg" alt="Agent screen">` : 
             `<div class="agentTileScreenPlaceholder">Monitor</div>`
@@ -2028,9 +3044,147 @@ async function updateAgentTileContent(agent, tile) {
         </div>
       </div>
       
-      ${agent.step?.reasoning ? `<div class="agentReasoningOverlay">${agent.step.reasoning.length > 120 ? agent.step.reasoning.substring(0, 120) + '...' : agent.step.reasoning}</div>` : ''}
+      ${agent.step?.reasoning || agent.step?.action ? createReasoningPanel(agent) : ''}
+      
     </div>
   `
+  
+  // Initialize Lucide icons after content update
+  setTimeout(() => {
+    if (typeof lucide !== 'undefined') {
+      lucide.createIcons()
+    }
+  }, 100)
+}
+
+function createReasoningPanel(agent) {
+  if (!agent.step?.reasoning && !agent.step?.action) return ''
+  
+  // Get action icon based on action type
+  const actionIcons = {
+    'left_click': 'mouse-pointer-click',
+    'double_click': 'mouse-pointer-click', 
+    'right_click': 'mouse-pointer-click',
+    'type': 'keyboard',
+    'hotkey': 'command',
+    'scroll_down': 'arrow-down',
+    'scroll_up': 'arrow-up',
+    'wait': 'clock'
+  }
+  
+  const actionIcon = actionIcons[agent.step.action] || 'mouse-pointer'
+  const actionText = agent.step.action || 'Processing'
+  
+  return `
+    <div class="reasoningPanel visible">
+      <div class="reasoningPanelHeader">
+        <div class="reasoningPanelTitle">
+          Thoughts
+        </div>
+        <button class="showAllBtn" onclick="expandReasoning('${agent.id}', event)">Show all</button>
+      </div>
+      
+      <p class="reasoningPanelText">${agent.step.reasoning || 'Analyzing current state...'}</p>
+      
+      <div class="reasoningPanelAction">
+        <i data-lucide="${actionIcon}" class="reasoningActionIcon"></i>
+        <span>Next: ${actionText}</span>
+        ${agent.step.coordinate ? `<span>at (${agent.step.coordinate[0]}, ${agent.step.coordinate[1]})</span>` : ''}
+      </div>
+    </div>
+  `
+}
+
+// Show full reasoning in custom alert
+function expandReasoning(agentId, event) {
+  // Prevent event bubbling to parent elements
+  if (event) {
+    event.stopPropagation()
+    event.preventDefault()
+  }
+  
+  const panel = document.querySelector(`#tile-${agentId} .reasoningPanel`)
+  const textElement = panel.querySelector('.reasoningPanelText')
+  
+  if (!panel || !textElement) {
+    showCustomAlert('No Reasoning Available', 'No reasoning data is available for this agent at this time.')
+    return
+  }
+  
+  // Get the full reasoning text from the element
+  const fullReasoning = textElement.textContent || textElement.innerText || 'No reasoning available.'
+  
+  // Show custom alert with full reasoning
+  showCustomAlert(`${agentId} Full Reasoning`, fullReasoning)
+}
+
+// Custom alert functions
+function showCustomAlert(title, message) {
+  const modal = $("customAlert")
+  const titleElement = $("customAlertTitle")
+  const bodyElement = $("customAlertBody")
+  
+  titleElement.textContent = title
+  bodyElement.textContent = message
+  
+  // Initialize Lucide icons
+  if (typeof lucide !== 'undefined') {
+    lucide.createIcons()
+  }
+  
+  modal.classList.add('open')
+}
+
+function closeCustomAlert() {
+  const modal = $("customAlert")
+  modal.classList.remove('open')
+}
+
+// Connection overlay functions
+function showConnectionOverlay() {
+  const overlay = $("connectionOverlay")
+  overlay.classList.add('active')
+  
+  // Initialize Lucide icons
+  if (typeof lucide !== 'undefined') {
+    lucide.createIcons()
+  }
+}
+
+function hideConnectionOverlay() {
+  const overlay = $("connectionOverlay")
+  overlay.classList.remove('active')
+}
+
+// Single view empty state functions
+function showSingleEmptyState() {
+  if (currentView === 'single') {
+    const screen = $("screen")
+    const singleEmpty = $("singleEmptyState")
+    const viewport = $("viewport")
+    
+    screen.style.display = 'none'
+    viewport.classList.add('empty')
+    singleEmpty.style.display = 'flex'
+    
+    // Initialize Lucide icons
+    if (typeof lucide !== 'undefined') {
+      lucide.createIcons()
+    }
+  }
+}
+
+function hideSingleEmptyState() {
+  const screen = $("screen")
+  const singleEmpty = $("singleEmptyState")
+  const viewport = $("viewport")
+  
+  singleEmpty.style.display = 'none'
+  viewport.classList.remove('empty')
+}
+
+function closeReasoningModal() {
+  $("reasoningModal").classList.remove('open')
 }
 
 // Helper functions for supervisor controls
