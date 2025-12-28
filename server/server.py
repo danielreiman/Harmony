@@ -5,7 +5,7 @@ from manager import Manager
 
 def main():
     agents = {}
-    tasks = ["Open the first ever youtube video"]
+    tasks = ["Conduct brief research on the rise of AI, compile key data with sources in a document, and provide a summarized version on a separate page.","Conduct brief research on the rise of AI, compile key data with sources in a document, and provide a summarized version on a separate page."]
 
     os.makedirs("./runtime", exist_ok=True)
 
