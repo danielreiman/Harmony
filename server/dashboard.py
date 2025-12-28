@@ -1053,7 +1053,7 @@ body{
   text-align:center;
   animation:overlayFadeIn 0.8s cubic-bezier(0.4, 0, 0.2, 1);
   max-height:90vh;
-  overflow-y:auto;
+  overflow:hidden;
   position:relative;
 }
 
@@ -1167,6 +1167,11 @@ body{
   font-weight:600;
   color:var(--accent);
   background:rgba(139,111,71,0.1);
+  padding:12px;
+  border-radius:8px;
+  margin:8px 0;
+  white-space:pre-line;
+  line-height:1.5;
   padding:6px 10px;
   border-radius:6px;
   margin-bottom:6px;
@@ -1178,6 +1183,35 @@ body{
   font-size:14px;
   color:var(--muted);
   line-height:1.5;
+}
+
+.connectionDownloadLink{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  color:var(--accent);
+  text-decoration:none;
+  font-weight:500;
+  padding:4px 8px;
+  border-radius:6px;
+  transition:var(--transition);
+}
+
+.connectionDownloadLink:hover{
+  background:rgba(139,111,71,0.1);
+  text-decoration:none;
+}
+
+.connectionDownloadLink i{
+  width:14px;
+  height:14px;
+}
+
+.connectionStepOptions{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin-top:8px;
 }
 
 .connectionTip{
@@ -1204,6 +1238,54 @@ body{
   color:var(--muted);
   line-height:1.5;
 }
+
+.connectionWaiting{
+  text-align:center;
+  padding:24px;
+  margin:20px 0;
+}
+
+.connectionWaitingDots{
+  display:flex;
+  justify-content:center;
+  gap:8px;
+  margin-bottom:16px;
+}
+
+.connectionDot{
+  width:8px;
+  height:8px;
+  background:var(--accent);
+  border-radius:50%;
+  animation:connectionPulse 1.5s infinite ease-in-out;
+}
+
+.connectionDot:nth-child(2){
+  animation-delay:0.3s;
+}
+
+.connectionDot:nth-child(3){
+  animation-delay:0.6s;
+}
+
+@keyframes connectionPulse {
+  0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1.2); }
+}
+
+.connectionWaitingText{
+  font-size:18px;
+  font-weight:600;
+  color:var(--text);
+  margin-bottom:8px;
+}
+
+.connectionWaitingSubtext{
+  font-size:14px;
+  color:var(--muted);
+  line-height:1.4;
+}
+
 
 .connectionOverlayFooter{
   padding-top:32px;
@@ -2330,35 +2412,48 @@ body{
         <div class="connectionStep">
           <div class="connectionStepNumber">1</div>
           <div class="connectionStepContent">
-            <div class="connectionStepTitle">Launch Terminal</div>
-            <div class="connectionStepDescription">Open Command Prompt (Windows) or Terminal (Mac/Linux) on the computer you want the agent to operate</div>
+            <div class="connectionStepTitle">Get Harmony</div>
+            <div class="connectionStepCommand">git clone https://github.com/danielreiman/Harmony</div>
+            <div class="connectionStepOptions">
+              <div class="connectionStepDescription">Clone the repository, or</div>
+              <a href="https://github.com/danielreiman/Harmony/archive/refs/heads/main.zip" target="_blank" class="connectionDownloadLink">
+                <i data-lucide="download"></i>
+                Download ZIP directly
+              </a>
+            </div>
           </div>
         </div>
         
         <div class="connectionStep">
           <div class="connectionStepNumber">2</div>
           <div class="connectionStepContent">
-            <div class="connectionStepTitle">Deploy Agent</div>
-            <div class="connectionStepCommand">python client/client.py</div>
-            <div class="connectionStepDescription">Execute the command to deploy an agent that will operate this computer</div>
+            <div class="connectionStepTitle">Setup Environment</div>
+            <div class="connectionStepCommand">python -m venv .venv; .\.venv\Scripts\Activate.ps1; pip install -r requirements.txt</div>
+            <div class="connectionStepDescription">Create virtual environment and install dependencies. On macOS/Linux, replace semicolons with && and use source .venv/bin/activate</div>
           </div>
         </div>
         
         <div class="connectionStep">
           <div class="connectionStepNumber">3</div>
           <div class="connectionStepContent">
-            <div class="connectionStepTitle">Agent Online</div>
-            <div class="connectionStepDescription">The agent will automatically connect and appear in your dashboard, ready to operate the computer based on your instructions.</div>
+            <div class="connectionStepTitle">Deploy Agent</div>
+            <div class="connectionStepCommand">cd client && python client.py</div>
+            <div class="connectionStepDescription">Navigate to the client folder and run the agent to connect to this control center</div>
           </div>
         </div>
       </div>
       
-      <div class="connectionTip">
-        <i data-lucide="lightbulb" class="connectionTipIcon"></i>
-        <div class="connectionTipContent">
-          <strong>Note:</strong> Deploy agents across multiple computers to operate an entire fleet from this central dashboard.
+      <div class="connectionWaiting">
+        <div class="connectionWaitingDots">
+          <div class="connectionDot"></div>
+          <div class="connectionDot"></div>
+          <div class="connectionDot"></div>
         </div>
+        <div class="connectionWaitingText">Waiting for computers to become agents...</div>
+        <div class="connectionWaitingSubtext">Once connected, your agents will appear here and be ready to execute tasks</div>
       </div>
+      
+      
     </div>
   </div>
 </div>
