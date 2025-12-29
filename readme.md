@@ -1,7 +1,12 @@
+<p>
+  <img src="icon.png" alt="Harmony icon" width="120">
+</p>
+
+# Harmony Project - Single-Agent Mode
+<img alt="GitHub last commit" src="https://img.shields.io/github/last-commit/danielreiman/Harmony">
+
 > [!NOTE]  
 > To use the orchestrator version of Harmony, which includes a central server, multiple clients, parallel agents, and a manager for coordinated execution, switch to the `main` branch.
-
-# Harmony Desktop Agent
 
 Harmony is a vision based desktop automation agent. It observes the screen, understands UI elements, plans actions using a vision language model, and controls the desktop through precise input events.
 
@@ -43,3 +48,4 @@ Harmony runs a simple loop:
 ## Ready
 
 After setup, Harmony is ready to operate the desktop in real time.
+
