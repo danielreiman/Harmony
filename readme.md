@@ -1,7 +1,5 @@
-
-
 <p>
-  <img src="icon.png" alt="Harmony icon" width="120">
+  <img src="icon.png" alt="Harmony icon" width="200">
 </p>
 
 <h1 >Harmony Project</h1>
@@ -130,6 +128,7 @@ More clients means more parallel execution.
 
 ## Ready
 Once setup and running, Harmony becomes a centralized command system that coordinates and automates multiple desktops at once.
+
 
 
 
