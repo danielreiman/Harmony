@@ -1,5 +1,5 @@
 <p>
-  <img src="icon.png" alt="Harmony icon" width="120">
+  <img src="icon.png" alt="Harmony icon" width="200">
 </p>
 
 # Harmony Project - Single-Agent Mode
@@ -48,4 +48,5 @@ Harmony runs a simple loop:
 ## Ready
 
 After setup, Harmony is ready to operate the desktop in real time.
+
 
