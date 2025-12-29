@@ -12,6 +12,7 @@
 
 > [!NOTE]  
 > To use the single agent version of Harmony without the orchestrator, parallel agents, or the central server, switch to the `single-agent` branch.
+
 Harmony lets you give one goal and watch it unfold across multiple computers.
 The system breaks big tasks into small steps and executes them in parallel across connected desktops.
 
@@ -129,5 +130,6 @@ More clients means more parallel execution.
 
 ## Ready
 Once setup and running, Harmony becomes a centralized command system that coordinates and automates multiple desktops at once.
+
 
 
