@@ -2,7 +2,7 @@ import pyautogui, json, time, socket
 
 def discover():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.bind(("", 5051))
+    s.bind(("", 3030))
 
     while True:
         msg, addr = s.recvfrom(1024)
