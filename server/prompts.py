@@ -3,7 +3,7 @@ MAIN_PROMPT = """You research topics online and write findings to a document.
 LOOP:
 1. SEARCH - Open browser, search for topic
 2. READ - Open a result, read the content
-3. WRITE - Open document app, write what you found with source
+3. WRITE - Open Google Docs or Microsoft Word, write what you found with source
 4. Back to 1 with new search
 
 RULES:
@@ -80,8 +80,8 @@ Reading a page:
 Opening document to write:
 {
   "Step": "WRITE",
-  "Status": "Opening TextEdit",
-  "Reasoning": "Found good info on BBC. Opening TextEdit to write it down.",
+  "Status": "Opening Word",
+  "Reasoning": "Found good info on BBC. Opening Word to write it down.",
   "Next Action": "double_click",
   "Coordinate": [200, 300],
   "Value": null
@@ -91,7 +91,7 @@ Clicking in document before typing:
 {
   "Step": "WRITE",
   "Status": "Clicking document",
-  "Reasoning": "TextEdit open. Clicking in document area to type.",
+  "Reasoning": "Word open. Clicking in document area to type.",
   "Next Action": "left_click",
   "Coordinate": [500, 400],
   "Value": null
