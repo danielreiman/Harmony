@@ -22,6 +22,8 @@ class Agent:
         self.status_text = "Idle"
         self.step = {}
         self.cycle_count = 0
+        self.current_phase = None
+        self.phase_count = 0
 
         self.screenshot_path = f"{BASE_SCREENSHOT_DIR}screenshot_{self.id}.png"
         self.event = threading.Event()
@@ -59,9 +61,11 @@ class Agent:
         self.task = task
         self.status = "working"
         self.cycle_count = 0
+        self.current_phase = None
+        self.phase_count = 0
         self.history = [
             {"role": "system", "content": MAIN_PROMPT},
-            {"role": "user", "content": f"Research task: {task}"}
+            {"role": "user", "content": f"Research this topic: {task}"}
         ]
         self.status_text = "Starting..."
         self.broadcast()
@@ -94,19 +98,36 @@ class Agent:
 
             ai_response = self.think()
 
-            # Remove image from history to save context
+            # Remove image from history
             if self.history and "images" in self.history[-1]:
                 self.history[-1].pop("images", None)
             self.history.append({"role": "assistant", "content": ai_response["raw"]})
 
             # Parse response
+            phase = ai_response.get("Step", "SEARCH")
             self.step = {
+                "phase": phase,
                 "status_short": ai_response.get("Status", "Working..."),
                 "reasoning": ai_response.get("Reasoning", ""),
                 "action": ai_response.get("Next Action"),
                 "coordinate": ai_response.get("Coordinate"),
                 "value": ai_response.get("Value")
             }
+
+            # Track phase changes
+            if phase == self.current_phase:
+                self.phase_count += 1
+            else:
+                self.current_phase = phase
+                self.phase_count = 1
+
+            # Warn if stuck on same phase too long
+            if self.phase_count > 5:
+                self.history.append({
+                    "role": "user",
+                    "content": f"You've been on {phase} step for {self.phase_count} actions. Move to the next step now. If SEARCH, go to READ. If READ, go to WRITE. If WRITE, go back to SEARCH."
+                })
+                print(f"[Agent {self.id}] Stuck on {phase} for {self.phase_count} actions")
 
             # Check completion
             if self.step["action"] in [None, "None"]:
@@ -120,7 +141,6 @@ class Agent:
             self.status_text = self.step.get("status_short", "Executing...")
             self.broadcast()
 
-            # Send only fields client expects
             client_step = {
                 "Next Action": ai_response.get("Next Action"),
                 "Coordinate": ai_response.get("Coordinate"),
@@ -137,13 +157,12 @@ class Agent:
             success = response.get("success", False)
             self.step["success"] = success
 
-            # Provide feedback on failure
             if not success:
                 action = self.step.get("action", "")
                 print(f"[Agent {self.id}] Action failed: {action}")
                 self.history.append({
                     "role": "user",
-                    "content": f"The action failed. If you tried to type, make sure you clicked on a text field first. Try again."
+                    "content": f"Action failed. Remember: click on a text field before typing. Try again with correct approach."
                 })
 
             self.broadcast()
@@ -152,13 +171,11 @@ class Agent:
 
     def think(self):
         try:
-            # Keep system prompt + task + recent history
             trimmed = self.history[:2] + self.history[-MAX_HISTORY:]
 
             result = self.client.chat(model=self.model_name, messages=trimmed)
             raw = result["message"]["content"].strip()
 
-            # Parse JSON
             try:
                 start = raw.find("{")
                 end = raw.rfind("}") + 1
@@ -168,7 +185,8 @@ class Agent:
             except (json.JSONDecodeError, ValueError) as e:
                 print(f"[Agent {self.id}] Parse error: {e}")
                 return {
-                    "Status": "Parse error",
+                    "Step": "SEARCH",
+                    "Status": "Error",
                     "Next Action": "None",
                     "Reasoning": str(e),
                     "raw": raw
@@ -177,7 +195,8 @@ class Agent:
         except Exception as e:
             print(f"[Agent {self.id}] API error: {e}")
             return {
-                "Status": "API error",
+                "Step": "SEARCH",
+                "Status": "Error",
                 "Next Action": "None",
                 "Reasoning": str(e),
                 "raw": str(e)
@@ -191,6 +210,8 @@ class Agent:
             "status_text": self.status_text,
             "step": self.step,
             "cycle": self.cycle_count,
+            "phase": self.current_phase,
+            "phase_count": self.phase_count,
             "ts": time.time()
         }
 

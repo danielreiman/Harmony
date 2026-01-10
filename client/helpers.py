@@ -62,7 +62,7 @@ def act(step):
             time.sleep(0.12)
             pyautogui.click()
 
-        elif action == "right_click":
+        elif action == "click":
             pyautogui.click(button="right")
 
         elif action == "type":
