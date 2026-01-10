@@ -12,6 +12,7 @@ RULES:
 - Write information you actually see on screen
 - Include source name with everything you write
 - Move to next step after 3-4 actions
+- IGNORE Google's AI/Gemini suggestions at top of search results - scroll past them and click real website links
 
 COORDINATES: 0-1000 (top-left=0,0)
 
