@@ -6,7 +6,7 @@ from prompts import MAIN_PROMPT
 from helpers import send, recv, recv_file
 
 BASE_SCREENSHOT_DIR = "./runtime/"
-MAX_HISTORY = 10
+MAX_HISTORY = 12
 
 
 class Agent:
@@ -21,7 +21,7 @@ class Agent:
 
         self.status_text = "Idle"
         self.step = {}
-        self.last_reasoning = None
+        self.cycle_count = 0
 
         self.screenshot_path = f"{BASE_SCREENSHOT_DIR}screenshot_{self.id}.png"
         self.event = threading.Event()
@@ -58,19 +58,22 @@ class Agent:
     def assign(self, task: str):
         self.task = task
         self.status = "working"
+        self.cycle_count = 0
         self.history = [
             {"role": "system", "content": MAIN_PROMPT},
-            {"role": "user", "content": f"Goal: {task}"}
+            {"role": "user", "content": f"Research task: {task}"}
         ]
-        self.status_text = "Task assigned"
+        self.status_text = "Starting..."
         self.broadcast()
         self.event.set()
         print(f"[Agent {self.id}] Task: {task[:60]}...")
 
     def run(self):
         while self.status == "working" and self.task:
-            # ===== Vision =====
-            self.status_text = "Capturing screen..."
+            self.cycle_count += 1
+
+            # ===== Capture Screen =====
+            self.status_text = "Looking..."
             self.broadcast()
 
             if not send({"type": "request_screenshot"}, self.conn):
@@ -81,7 +84,7 @@ class Agent:
 
             self.history.append({
                 "role": "user",
-                "content": "Current view",
+                "content": "Current screen:",
                 "images": [self.screenshot_path]
             })
 
@@ -91,12 +94,12 @@ class Agent:
 
             ai_response = self.think()
 
-            # Remove image from history to save tokens
+            # Remove image from history to save context
             if self.history and "images" in self.history[-1]:
                 self.history[-1].pop("images", None)
             self.history.append({"role": "assistant", "content": ai_response["raw"]})
 
-            # Store step for dashboard (includes status_short for display)
+            # Parse response
             self.step = {
                 "status_short": ai_response.get("Status", "Working..."),
                 "reasoning": ai_response.get("Reasoning", ""),
@@ -110,23 +113,14 @@ class Agent:
                 self.status_text = "Done"
                 self.status = "idle"
                 self.broadcast()
-                print(f"[Agent {self.id}] Completed")
+                print(f"[Agent {self.id}] Completed after {self.cycle_count} cycles")
                 return True
-
-            # Check for repeated reasoning (stuck detection)
-            current_reasoning = self.step.get("reasoning", "")
-            if self.last_reasoning and current_reasoning == self.last_reasoning:
-                self.history.append({
-                    "role": "user",
-                    "content": "You repeated the same reasoning. Try a different approach."
-                })
-            self.last_reasoning = current_reasoning
 
             # ===== Execute =====
             self.status_text = self.step.get("status_short", "Executing...")
             self.broadcast()
 
-            # Send only the fields the client expects (no status_short)
+            # Send only fields client expects
             client_step = {
                 "Next Action": ai_response.get("Next Action"),
                 "Coordinate": ai_response.get("Coordinate"),
@@ -140,11 +134,17 @@ class Agent:
             if not response:
                 return False
 
-            self.step["success"] = response.get("success", False)
+            success = response.get("success", False)
+            self.step["success"] = success
 
-            if not self.step["success"]:
-                error = response.get("error", "Unknown error")
-                print(f"[Agent {self.id}] Action failed: {error}")
+            # Provide feedback on failure
+            if not success:
+                action = self.step.get("action", "")
+                print(f"[Agent {self.id}] Action failed: {action}")
+                self.history.append({
+                    "role": "user",
+                    "content": f"The action failed. If you tried to type, make sure you clicked on a text field first. Try again."
+                })
 
             self.broadcast()
 
@@ -152,13 +152,13 @@ class Agent:
 
     def think(self):
         try:
-            # Trim history to stay within context limits
+            # Keep system prompt + task + recent history
             trimmed = self.history[:2] + self.history[-MAX_HISTORY:]
 
             result = self.client.chat(model=self.model_name, messages=trimmed)
             raw = result["message"]["content"].strip()
 
-            # Parse JSON from response
+            # Parse JSON
             try:
                 start = raw.find("{")
                 end = raw.rfind("}") + 1
@@ -168,7 +168,7 @@ class Agent:
             except (json.JSONDecodeError, ValueError) as e:
                 print(f"[Agent {self.id}] Parse error: {e}")
                 return {
-                    "Status": "Error parsing response",
+                    "Status": "Parse error",
                     "Next Action": "None",
                     "Reasoning": str(e),
                     "raw": raw
@@ -190,6 +190,7 @@ class Agent:
             "task": self.task,
             "status_text": self.status_text,
             "step": self.step,
+            "cycle": self.cycle_count,
             "ts": time.time()
         }
 
