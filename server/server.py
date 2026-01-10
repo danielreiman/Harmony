@@ -5,21 +5,19 @@ from manager import Manager
 
 def main():
     agents = {}
-    tasks = ["Conduct brief research on the rise of AI, compile key data with sources in a document, and provide a summarized version on a separate page.","Conduct brief research on the rise of AI, compile key data with sources in a document, and provide a summarized version on a separate page."]
+    agents_lock = threading.Lock()
+    tasks = [
+        "Create a 1-page research document about AI with clear structure: Introduction (what is AI and why it matters), Brief History (key milestones from 1950s to 2020s), Current State (how AI is used today with 2-3 specific examples and statistics), and Conclusion (what this means for the future). Focus on essential facts with proper citations. Keep it concise and professional. Use only things from websites no personal knwoledge",
+    ]
 
     os.makedirs("./runtime", exist_ok=True)
 
-    def cleanup_agent(agent_id):
-        if agent_id in agents:
-            print(f"[Server] Cleaning up agent: {agent_id}")
-            del agents[agent_id]
 
     # Start LAN discovery broadcast
     threading.Thread(target=broadcast, daemon=True).start()
 
     # Start Manager
-    manager = Manager(agents, tasks)
-    # threading.Thread(target=manager.ask, daemon=True).start()
+    manager = Manager(agents, agents_lock, tasks)
     threading.Thread(target=manager.activate, daemon=True).start()
 
     # Start agent TCP server
@@ -39,16 +37,16 @@ def main():
         agent = Agent(
             id=agent_id,
             model_name="qwen3-vl:235b-instruct-cloud",
-            conn=conn,
-            cleanup_callback=cleanup_agent
+            conn=conn
         )
 
         threading.Thread(
             target=agent.activate,
             daemon=True
-
         ).start()
-        agents[agent_id] = agent
+        
+        with agents_lock:
+            agents[agent_id] = agent
 
 if __name__ == "__main__":
     main()

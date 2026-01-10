@@ -29,10 +29,17 @@ def main():
             elif msg_type == "execute_step":
                 step = msg.get("step")
                 success = act(step)
+                error_msg = None
+                
+                if not success:
+                    action = step.get("Next Action", "unknown")
+                    error_msg = f"Action '{action}' failed to execute"
+                    print(f"[CLIENT] Action failed: {action}")
 
                 send_json(sock, {
                     "type": "execution_result",
-                    "success": success
+                    "success": success,
+                    "error": error_msg
                 })
 
     finally:

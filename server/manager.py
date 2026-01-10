@@ -5,8 +5,9 @@ from typing import Dict, List
 from prompts import TASK_SPLIT_PROMPT
 
 class Manager:
-    def __init__(self, agents: Dict[str, Agent], tasks: List[str]):
+    def __init__(self, agents: Dict[str, Agent], agents_lock, tasks: List[str]):
         self.agents = agents
+        self.agents_lock = agents_lock
         self.tasks = tasks
 
         api_key = config.OLLAMA_API_KEY
@@ -17,12 +18,20 @@ class Manager:
 
     def activate(self):
         while True:
-            for agent in self.agents.values():
-                if agent.status == "idle" and self.tasks:
-                    task = self.tasks.pop(0)
-                    agent.assign(task)
+            with self.agents_lock:
+                # Remove disconnected agents
+                disconnected = [agent_id for agent_id, agent in self.agents.items() if agent.status == "disconnected"]
+                for agent_id in disconnected:
+                    print(f"[Manager] Removing disconnected agent: {agent_id}")
+                    del self.agents[agent_id]
+                
+                # Assign tasks to idle agents
+                for agent in self.agents.values():
+                    if agent.status == "idle" and self.tasks:
+                        task = self.tasks.pop(0)
+                        agent.assign(task)
 
-            time.sleep(0.1)
+            time.sleep(1)
 
     def decompress(self, task):
         messages = [
@@ -52,11 +61,8 @@ class Manager:
         while True:
             no_tasks_left = len(self.tasks) == 0
 
-            agents_idle = True
-            for agent in self.agents.values():
-                if agent.status != "idle":
-                    agents_idle = False
-                    break
+            with self.agents_lock:
+                agents_idle = all(agent.status == "idle" for agent in self.agents.values())
 
             if no_tasks_left and agents_idle:
                 new_task = input("\nEnter new main task: ").strip()
