@@ -1,4 +1,4 @@
-import pyautogui, json, time, socket
+import pyautogui, json, time, socket, pyperclip, platform
 
 def discover():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -66,7 +66,18 @@ def act(step):
             pyautogui.click(button="right")
 
         elif action == "type":
-            pyautogui.typewrite(value, interval=0.04)
+            # Use clipboard paste for long text to avoid timeouts
+            if len(value) > 100:
+                pyperclip.copy(value)
+                # Use appropriate paste key for platform
+                if platform.system() == 'Darwin':  # macOS
+                    pyautogui.hotkey('command', 'v')
+                else:  # Windows/Linux
+                    pyautogui.hotkey('ctrl', 'v')
+                time.sleep(0.1)
+            else:
+                # Use write() for short text - much faster than typewrite()
+                pyautogui.write(value, interval=0.02)
 
         elif action == "press_key":
             pyautogui.press(value)
@@ -95,7 +106,7 @@ def act(step):
         return True
 
     except Exception as e:
-        print("Execution error:", e)
+        print(f"[CLIENT] Execution error for action '{action}': {e}")
         return False
 
 
