@@ -401,26 +401,44 @@ body{
 }
 
 .viewport.empty{
-  background:linear-gradient(135deg, var(--soft) 0%, var(--bg) 100%);
+  background:var(--bg);
+  min-width:500px;
+  min-height:400px;
+}
+
+.waitingState{
+  position:absolute;
+  top:0;
+  left:0;
+  right:0;
+  bottom:0;
+  display:flex;
   flex-direction:column;
-  gap:16px;
+  align-items:center;
+  justify-content:center;
+  gap:12px;
+  background:var(--bg);
+  border-radius:0 0 20px 20px;
 }
 
-.viewport.empty::before{
-  content:'';
-  width:64px;
-  height:64px;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238B857B' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 8V4H8'/%3E%3Crect width='16' height='12' x='4' y='8' rx='2'/%3E%3Cpath d='M2 14h2'/%3E%3Cpath d='M20 14h2'/%3E%3Cpath d='M15 13v2'/%3E%3Cpath d='M9 13v2'/%3E%3C/svg%3E");
-  background-size:contain;
-  background-repeat:no-repeat;
-  opacity:0.5;
+.waitingIcon{
+  width:56px;
+  height:56px;
+  color:var(--accent);
+  opacity:0.35;
+  margin-bottom:4px;
 }
 
-.viewport.empty::after{
-  content:'Waiting for task...';
-  font-size:15px;
+.waitingTitle{
+  font-size:22px;
+  font-weight:700;
+  color:var(--text);
+  opacity:0.55;
+}
+
+.waitingSubtitle{
+  font-size:14px;
   color:var(--muted);
-  font-weight:600;
   opacity:0.7;
 }
 
@@ -1752,25 +1770,21 @@ body{
   align-items:center;
   justify-content:center;
   height:100%;
-  color:var(--muted);
-  background:linear-gradient(135deg, var(--soft) 0%, var(--bg) 100%);
-  gap:10px;
+  background:var(--bg);
+  gap:8px;
 }
 
 .agentTileScreenPlaceholder::before{
-  content:'';
-  width:40px;
-  height:40px;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238B857B' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 8V4H8'/%3E%3Crect width='16' height='12' x='4' y='8' rx='2'/%3E%3Cpath d='M2 14h2'/%3E%3Cpath d='M20 14h2'/%3E%3Cpath d='M15 13v2'/%3E%3Cpath d='M9 13v2'/%3E%3C/svg%3E");
-  background-size:contain;
-  background-repeat:no-repeat;
+  content:'Waiting for task';
+  font-size:14px;
+  font-weight:600;
+  color:var(--text);
   opacity:0.5;
 }
 
 .agentTileScreenPlaceholder::after{
-  content:'Waiting for task';
-  font-size:12px;
-  font-weight:600;
+  content:'Send a task to begin';
+  font-size:11px;
   color:var(--muted);
   opacity:0.6;
 }
@@ -2462,7 +2476,14 @@ body{
         <img id="screen" class="screenImg"/>
         <div class="statusCap" id="statusCap">Idle</div>
         <div class="thought hidden" id="thought"></div>
-        
+
+        <!-- Waiting for Task State -->
+        <div class="waitingState" id="waitingState">
+          <i data-lucide="hourglass" class="waitingIcon"></i>
+          <div class="waitingTitle">Waiting for task</div>
+          <div class="waitingSubtitle">Send a task to start automation</div>
+        </div>
+
         <!-- Single View Empty State -->
         <div class="singleEmptyState" id="singleEmptyState" style="display: none;">
           <div class="singleEmptyContent">
@@ -2721,25 +2742,28 @@ function placeBubble(vp,el,x,y){
 async function refreshScreen(){
   if(!currentAgent) {
     $("screen").style.display='none'
+    $("waitingState").style.display='flex'
     $("viewport").classList.add('empty')
     return
   }
-  
+
   try {
     const r=await fetch(`/screen/${currentAgent}?t=${Date.now()}`,{cache:"no-store"})
     if(!r.ok) throw new Error(`Screen fetch failed: ${r.status}`)
-    
+
     const b=await r.blob()
     const u=URL.createObjectURL(b)
     if(lastImgUrl)URL.revokeObjectURL(lastImgUrl)
     lastImgUrl=u
-    
+
     $("screen").src=u
     $("screen").style.display='block'
+    $("waitingState").style.display='none'
     $("viewport").classList.remove('empty')
   } catch(e) {
     console.warn('Screen refresh failed:', e.message)
     $("screen").style.display='none'
+    $("waitingState").style.display='flex'
     $("viewport").classList.add('empty')
   }
 }
