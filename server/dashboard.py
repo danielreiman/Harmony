@@ -400,46 +400,114 @@ body{
   transition:var(--transition);
 }
 
-.viewport.empty{
-  background:var(--bg);
-  min-width:500px;
-  min-height:400px;
+.browserFrame.waiting{
+  border:none !important;
+  box-shadow:none !important;
+  background:transparent !important;
+  transform:none !important;
+}
+
+.browserFrame.waiting:hover{
+  transform:none !important;
+  box-shadow:none !important;
+}
+
+.browserFrame.waiting .viewport{
+  background:transparent !important;
+  min-height:auto;
 }
 
 .waitingState{
-  position:absolute;
-  top:0;
-  left:0;
-  right:0;
-  bottom:0;
-  display:flex;
+  display:none;
   flex-direction:column;
   align-items:center;
   justify-content:center;
   gap:12px;
-  background:var(--bg);
-  border-radius:0 0 20px 20px;
+  padding:80px 60px;
 }
 
 .waitingIcon{
-  width:56px;
-  height:56px;
+  width:48px;
+  height:48px;
   color:var(--accent);
-  opacity:0.35;
-  margin-bottom:4px;
+  opacity:0.4;
+  animation:gentlePulse 2s ease-in-out infinite;
+}
+
+@keyframes gentlePulse{
+  0%,100%{opacity:0.4}
+  50%{opacity:0.6}
+}
+
+.waitingAgentId{
+  font-family:ui-monospace, "SF Mono", Monaco, monospace;
+  font-size:13px;
+  font-weight:600;
+  color:var(--accent);
+  background:rgba(139,111,71,0.08);
+  padding:6px 14px;
+  border-radius:8px;
+  margin-top:8px;
 }
 
 .waitingTitle{
-  font-size:22px;
+  font-size:26px;
   font-weight:700;
   color:var(--text);
-  opacity:0.55;
+  opacity:0.6;
+  letter-spacing:-0.02em;
+  margin-top:8px;
 }
 
 .waitingSubtitle{
   font-size:14px;
   color:var(--muted);
+  opacity:0.6;
+}
+
+.waitingMeta{
+  display:flex;
+  gap:20px;
+  margin-top:12px;
+}
+
+.waitingMetaItem{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  font-size:13px;
+  color:var(--muted);
   opacity:0.7;
+}
+
+.waitingMetaItem i{
+  width:14px;
+  height:14px;
+  color:var(--accent);
+}
+
+.waitingHint{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin-top:24px;
+  padding:10px 18px;
+  background:rgba(139,111,71,0.05);
+  border-radius:10px;
+  font-size:13px;
+  color:var(--muted);
+}
+
+.waitingHint i{
+  width:14px;
+  height:14px;
+  color:var(--accent);
+  animation:bounce 2s ease-in-out infinite;
+}
+
+@keyframes bounce{
+  0%,100%{transform:translateY(0)}
+  50%{transform:translateY(3px)}
 }
 
 /* ===== Floating status ===== */
@@ -1769,24 +1837,24 @@ body{
   flex-direction:column;
   align-items:center;
   justify-content:center;
+  width:100%;
   height:100%;
-  background:var(--bg);
   gap:8px;
 }
 
 .agentTileScreenPlaceholder::before{
-  content:'Waiting for task';
-  font-size:14px;
+  content:'Agent is waiting for task';
+  font-size:13px;
   font-weight:600;
   color:var(--text);
-  opacity:0.5;
+  opacity:0.4;
 }
 
 .agentTileScreenPlaceholder::after{
   content:'Send a task to begin';
   font-size:11px;
   color:var(--muted);
-  opacity:0.6;
+  opacity:0.5;
 }
 
 .agentTileStatus{
@@ -2479,9 +2547,24 @@ body{
 
         <!-- Waiting for Task State -->
         <div class="waitingState" id="waitingState">
-          <i data-lucide="hourglass" class="waitingIcon"></i>
+          <i data-lucide="circle-dot" class="waitingIcon"></i>
+          <div class="waitingAgentId" id="waitingAgentId">agent-000000</div>
           <div class="waitingTitle">Waiting for task</div>
-          <div class="waitingSubtitle">Send a task to start automation</div>
+          <div class="waitingSubtitle">This agent is connected and ready to work</div>
+          <div class="waitingMeta">
+            <div class="waitingMetaItem">
+              <i data-lucide="wifi"></i>
+              <span>Connected</span>
+            </div>
+            <div class="waitingMetaItem">
+              <i data-lucide="cpu"></i>
+              <span>Idle</span>
+            </div>
+          </div>
+          <div class="waitingHint">
+            <i data-lucide="arrow-down"></i>
+            <span>Type a task below to begin automation</span>
+          </div>
         </div>
 
         <!-- Single View Empty State -->
@@ -2740,10 +2823,24 @@ function placeBubble(vp,el,x,y){
 }
 
 async function refreshScreen(){
-  if(!currentAgent) {
+  const browserFrame = document.querySelector('.browserFrame')
+  const browserTop = document.querySelector('.browserTop')
+  const taskPanel = $("taskStatusPanel")
+  const statusCap = $("statusCap")
+
+  function showWaiting() {
     $("screen").style.display='none'
     $("waitingState").style.display='flex'
+    $("waitingAgentId").textContent = currentAgent || 'No agent selected'
     $("viewport").classList.add('empty')
+    browserFrame.classList.add('waiting')
+    browserTop.style.display='none'
+    taskPanel.style.display='none'
+    statusCap.style.display='none'
+  }
+
+  if(!currentAgent) {
+    showWaiting()
     return
   }
 
@@ -2760,11 +2857,13 @@ async function refreshScreen(){
     $("screen").style.display='block'
     $("waitingState").style.display='none'
     $("viewport").classList.remove('empty')
+    browserFrame.classList.remove('waiting')
+    browserTop.style.display='flex'
+    taskPanel.style.display='block'
+    statusCap.style.display='block'
   } catch(e) {
     console.warn('Screen refresh failed:', e.message)
-    $("screen").style.display='none'
-    $("waitingState").style.display='flex'
-    $("viewport").classList.add('empty')
+    showWaiting()
   }
 }
 
