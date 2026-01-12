@@ -66,11 +66,6 @@ Clients auto-discover the server via UDP broadcast and connect automatically.
 
 ### 4. Monitor (Optional)
 
-Start the UI of the server by running:
-```
-python dashboard.py
-```
-
 The UI will be available at:
 ```
 http://localhost:1234

@@ -5,21 +5,15 @@ import uuid
 from helpers import broadcast
 from agent import Agent
 from manager import Manager
+from dashboard import init_dashboard, run_dashboard
 
 HOST = "0.0.0.0"
 PORT = 1222
+DASHBOARD_PORT = 1234
 RUNTIME_DIR = "./runtime"
 MODEL = "qwen3-vl:235b-instruct-cloud"
 
-DEFAULT_TASKS = [
-    "Create a 1-page research document about AI with clear structure: "
-    "Introduction (what is AI and why it matters), "
-    "Brief History (key milestones from 1950s to 2020s), "
-    "Current State (how AI is used today with 2-3 specific examples and statistics), "
-    "and Conclusion (what this means for the future). "
-    "Focus on essential facts with proper citations. Keep it concise and professional. "
-    "Use only things from websites, no personal knowledge.",
-]
+DEFAULT_TASKS = []
 
 
 def main():
@@ -34,15 +28,28 @@ def main():
     print("=" * 60)
     print()
 
+    # Start LAN discovery broadcast
     broadcast_thread = threading.Thread(target=broadcast, daemon=True)
     broadcast_thread.start()
     print("[✓] LAN discovery broadcast started (UDP port 3030)")
 
+    # Start task manager
     manager = Manager(agents, lock, tasks)
     manager_thread = threading.Thread(target=manager.activate, daemon=True)
     manager_thread.start()
     print("[✓] Task manager started")
 
+    # Start dashboard with shared state
+    init_dashboard(agents, lock, tasks)
+    dashboard_thread = threading.Thread(
+        target=run_dashboard,
+        kwargs={"host": HOST, "port": DASHBOARD_PORT},
+        daemon=True
+    )
+    dashboard_thread.start()
+    print(f"[✓] Dashboard started on http://localhost:{DASHBOARD_PORT}")
+
+    # Start TCP server
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind((HOST, PORT))
