@@ -66,8 +66,12 @@ Clients auto-discover the server via UDP broadcast and connect automatically.
 
 ### 4. Monitor (Optional)
 
-View agent status at:
+Start the UI of the server by running:
+```
+python dashboard.py
+```
 
+The UI will be available at:
 ```
 http://localhost:1234
 ```
@@ -179,14 +183,3 @@ agent.activate()      # Wait for task assignment
     → agent.save()    # Save state
 ```
 
-## Technical Details
-
-- **Protocol**: TCP for client-server, UDP for discovery
-- **Discovery**: Broadcast on 255.255.255.255:3030
-- **Timeout**: 120 seconds for long operations
-- **History**: Last 12 messages retained per agent
-- **Phase tracking**: Monitors SEARCH → READ → WRITE workflow
-
-## License
-
-MIT License - See LICENSE file for details
