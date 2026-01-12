@@ -1,6 +1,16 @@
-ollama_key = input("Enter Ollama API key: ").strip()
+def main():
+    print("Harmony Server Setup\n")
+    key = input("Ollama API key: ").strip()
 
-with open(".env", "w") as f:
-    f.write(f"OLLAMA_API_KEY={ollama_key}\n")
+    if not key:
+        print("Error: API key required")
+        return
 
-print("Setup complete")
+    with open(".env", "w") as f:
+        f.write(f"OLLAMA_API_KEY={key}\n")
+
+    print("✓ Configuration saved to .env\n")
+
+
+if __name__ == "__main__":
+    main()

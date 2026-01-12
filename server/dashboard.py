@@ -4,8 +4,6 @@ import os, json
 RUNTIME_DIR = "./runtime"
 app = Flask(__name__)
 
-
-# ---------- NO CACHE ----------
 @app.after_request
 def add_no_cache_headers(resp):
     resp.headers["Cache-Control"] = "no-store, no-cache, max-age=0, must-revalidate"
