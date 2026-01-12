@@ -402,24 +402,26 @@ body{
 
 .viewport.empty{
   background:linear-gradient(135deg, var(--soft) 0%, var(--bg) 100%);
+  flex-direction:column;
+  gap:16px;
 }
 
 .viewport.empty::before{
-  content:'Monitor';
-  font-size:16px;
-  font-weight:600;
-  opacity:0.4;
-  position:absolute;
-  color:var(--muted);
+  content:'';
+  width:64px;
+  height:64px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238B857B' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 8V4H8'/%3E%3Crect width='16' height='12' x='4' y='8' rx='2'/%3E%3Cpath d='M2 14h2'/%3E%3Cpath d='M20 14h2'/%3E%3Cpath d='M15 13v2'/%3E%3Cpath d='M9 13v2'/%3E%3C/svg%3E");
+  background-size:contain;
+  background-repeat:no-repeat;
+  opacity:0.5;
 }
 
 .viewport.empty::after{
-  content:'Select an agent to view screen';
-  position:absolute;
-  bottom:20px;
-  font-size:14px;
+  content:'Waiting for task...';
+  font-size:15px;
   color:var(--muted);
-  font-weight:500;
+  font-weight:600;
+  opacity:0.7;
 }
 
 /* ===== Floating status ===== */
@@ -1751,16 +1753,25 @@ body{
   justify-content:center;
   height:100%;
   color:var(--muted);
-  font-size:16px;
-  font-weight:500;
-  opacity:0.4;
+  background:linear-gradient(135deg, var(--soft) 0%, var(--bg) 100%);
+  gap:10px;
+}
+
+.agentTileScreenPlaceholder::before{
+  content:'';
+  width:40px;
+  height:40px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238B857B' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 8V4H8'/%3E%3Crect width='16' height='12' x='4' y='8' rx='2'/%3E%3Cpath d='M2 14h2'/%3E%3Cpath d='M20 14h2'/%3E%3Cpath d='M15 13v2'/%3E%3Cpath d='M9 13v2'/%3E%3C/svg%3E");
+  background-size:contain;
+  background-repeat:no-repeat;
+  opacity:0.5;
 }
 
 .agentTileScreenPlaceholder::after{
-  content:'Connecting...';
-  font-size:13px;
-  font-weight:500;
-  margin-top:8px;
+  content:'Waiting for task';
+  font-size:12px;
+  font-weight:600;
+  color:var(--muted);
   opacity:0.6;
 }
 
@@ -2427,7 +2438,7 @@ body{
 
     <div class="rightNav">
       <button class="controlBtn stopServerBtn" onclick="stopServer()" title="Shutdown server">
-        <i data-lucide="power-off"></i>
+        <i data-lucide="power"></i>
         <span>Shutdown</span>
       </button>
       <a class="githubBtn" href="https://github.com/danielreiman/Harmony" target="_blank" rel="noreferrer">
@@ -3368,9 +3379,9 @@ async function updateAgentTileContent(agent, tile) {
           <div class="agentMiniAddress">${agent.id}</div>
         </div>
         <div class="agentMiniViewport" style="position: relative;">
-          ${screenshotUrl ? 
-            `<img src="${screenshotUrl}" class="agentTileScreenImg" alt="Agent screen">` : 
-            `<div class="agentTileScreenPlaceholder">Monitor</div>`
+          ${screenshotUrl ?
+            `<img src="${screenshotUrl}" class="agentTileScreenImg" alt="Agent screen">` :
+            `<div class="agentTileScreenPlaceholder"></div>`
           }
         </div>
       </div>
