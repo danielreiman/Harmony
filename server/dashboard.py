@@ -1,8 +1,19 @@
-from flask import Flask, send_file, jsonify, make_response
-import os, json
+from flask import Flask, send_file, jsonify, make_response, request
+import os, json, signal, shutil
 
 RUNTIME_DIR = "./runtime"
 app = Flask(__name__)
+
+# Shared state (set by init_dashboard)
+_agents = None
+_agents_lock = None
+_tasks = None
+
+def init_dashboard(agents, agents_lock, tasks):
+    global _agents, _agents_lock, _tasks
+    _agents = agents
+    _agents_lock = agents_lock
+    _tasks = tasks
 
 @app.after_request
 def add_no_cache_headers(resp):
@@ -182,7 +193,56 @@ body{
 
 /* ===== GitHub ===== */
 
-.rightNav{justify-self:end}
+.rightNav{
+  justify-self:end;
+  display:flex;
+  gap:12px;
+  align-items:center;
+}
+
+.controlBtn{
+  height:52px;
+  padding:0 18px;
+  border-radius:26px;
+  border:1px solid var(--border);
+  background:rgba(255,255,255,0.98);
+  backdrop-filter:blur(16px);
+  box-shadow:var(--shadow);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  cursor:pointer;
+  transition:var(--transition);
+  font-size:13px;
+  font-weight:600;
+  color:var(--muted);
+}
+
+.controlBtn:hover{
+  transform:translateY(-3px) scale(1.05);
+  box-shadow:0 20px 50px rgba(0,0,0,0.15);
+}
+
+.controlBtn i{
+  width:16px;
+  height:16px;
+}
+
+.stopServerBtn:hover{
+  border-color:#fca5a5;
+  color:#dc2626;
+}
+
+.stopAgentBtn:hover{
+  border-color:#fcd34d;
+  color:#d97706;
+}
+
+.disconnectBtn:hover{
+  border-color:#fca5a5;
+  color:#dc2626;
+}
 
 .githubBtn{
   width:56px;
@@ -1039,6 +1099,110 @@ body{
   display:flex;
 }
 
+.connectionOverlay.goodbye{
+  background:linear-gradient(135deg, #8B6F47, #6b5537);
+}
+
+.connectionOverlay.goodbye .connectionOverlayContent{
+  background:transparent;
+  border:none;
+  box-shadow:none;
+  text-align:center;
+}
+
+.connectionOverlay.goodbye .connectionOverlayIcon{
+  display:none;
+}
+
+.connectionOverlay.goodbye .connectionOverlayTitle{
+  color:white;
+  font-size:36px;
+}
+
+.connectionOverlay.goodbye .connectionOverlaySubtitle{
+  color:rgba(255,255,255,0.8);
+  margin-bottom:32px;
+}
+
+.goodbyeActions{
+  display:flex;
+  gap:16px;
+  justify-content:center;
+  margin-top:24px;
+}
+
+.goodbyeBtn{
+  padding:14px 28px;
+  border-radius:28px;
+  border:2px solid rgba(255,255,255,0.3);
+  background:rgba(255,255,255,0.1);
+  color:white;
+  font-size:14px;
+  font-weight:600;
+  cursor:pointer;
+  transition:all 0.2s ease;
+  text-decoration:none;
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+
+.goodbyeBtn:hover{
+  background:rgba(255,255,255,0.2);
+  border-color:rgba(255,255,255,0.5);
+  transform:translateY(-2px);
+}
+
+.goodbyeBtn i{
+  width:18px;
+  height:18px;
+}
+
+/* Toast Notifications */
+.toast{
+  position:fixed;
+  bottom:100px;
+  left:50%;
+  transform:translateX(-50%) translateY(20px);
+  padding:14px 24px;
+  background:var(--panel);
+  border:1px solid var(--border);
+  border-radius:12px;
+  box-shadow:0 8px 32px rgba(0,0,0,0.12);
+  font-size:14px;
+  font-weight:500;
+  color:var(--text);
+  opacity:0;
+  transition:all 0.3s ease;
+  z-index:1000;
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+
+.toast.show{
+  opacity:1;
+  transform:translateX(-50%) translateY(0);
+}
+
+.toast.error{
+  background:#fef2f2;
+  border-color:#fca5a5;
+  color:#991b1b;
+}
+
+.toast.success{
+  background:#f0fdf4;
+  border-color:#86efac;
+  color:#166534;
+}
+
+.toast i{
+  width:18px;
+  height:18px;
+  flex-shrink:0;
+}
+
 .connectionOverlayContent{
   background:rgba(255,255,255,0.95);
   backdrop-filter:blur(20px);
@@ -1398,6 +1562,40 @@ body{
   align-items:flex-start;
   gap:12px;
   flex-shrink:0;
+}
+
+.agentTileControls{
+  display:flex;
+  gap:6px;
+  flex-shrink:0;
+  opacity:0;
+  transition:opacity 0.2s ease;
+}
+
+.agentTile:hover .agentTileControls{
+  opacity:1;
+}
+
+.tileAction{
+  padding:4px 10px;
+  border-radius:6px;
+  border:none;
+  background:var(--soft);
+  font-size:11px;
+  font-weight:600;
+  color:var(--muted);
+  cursor:pointer;
+  transition:all 0.15s ease;
+}
+
+.tileAction:hover{
+  background:var(--border);
+  color:var(--text);
+}
+
+.tileAction.danger:hover{
+  background:#fee2e2;
+  color:#dc2626;
 }
 
 .agentMiniWindow{
@@ -2228,6 +2426,10 @@ body{
     </div>
 
     <div class="rightNav">
+      <button class="controlBtn stopServerBtn" onclick="stopServer()" title="Shutdown server">
+        <i data-lucide="power-off"></i>
+        <span>Shutdown</span>
+      </button>
       <a class="githubBtn" href="https://github.com/danielreiman/Harmony" target="_blank" rel="noreferrer">
         <svg viewBox="0 0 24 24">
           <path d="M12 .5C5.73.5.5 5.73.5 12c0 5.1 3.29 9.41 7.86 10.94.58.11.79-.25.79-.56v-2.03c-3.2.7-3.87-1.54-3.87-1.54-.53-1.35-1.3-1.71-1.3-1.71-1.06-.72.08-.7.08-.7 1.17.08 1.78 1.2 1.78 1.2 1.04 1.78 2.73 1.27 3.4.97.1-.75.4-1.27.73-1.56-2.55-.29-5.23-1.27-5.23-5.66 0-1.25.45-2.27 1.19-3.07-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.17a11.1 11.1 0 012.9-.39c.98 0 1.97.13 2.9.39 2.2-1.48 3.17-1.17 3.17-1.17.63 1.59.23 2.76.11 3.05.74.8 1.18 1.82 1.18 3.07 0 4.4-2.69 5.36-5.25 5.65.41.35.78 1.05.78 2.12v3.14c0 .31.21.68.8.56A11.51 11.51 0 0023.5 12C23.5 5.73 18.27.5 12 .5z"/>
@@ -2387,6 +2589,12 @@ body{
       <p>This comprehensive results view will help you analyze the effectiveness of your automation tasks and optimize future workflows.</p>
     </div>
   </div>
+</div>
+
+<!-- Toast Notification -->
+<div class="toast" id="toast">
+  <i data-lucide="info"></i>
+  <span id="toastMessage">Message</span>
 </div>
 
 <!-- Custom Alert Modal -->
@@ -2618,6 +2826,7 @@ async function fetchAgents(){
   } catch(e) {
     console.error('Failed to fetch agents:', e.message)
     $("agentValue").textContent="Error"
+    showToast('Connection lost - server may be down', 'error')
   }
 }
 
@@ -2765,35 +2974,48 @@ function extractMentions(text) {
   return mentions
 }
 
-function sendTask() {
+async function sendTask() {
   const input = $("promptInput")
   const task = input.value.trim()
-  
+
   if(!task) {
-    alert('Please enter a task')
+    showToast('Please enter a task', 'error')
     return
   }
-  
-  let message
+
+  let agentId = null
+  let cleanTask = task
+
   if(currentView === 'single') {
-    // Single view - send to current agent
     if(!currentAgent) {
-      alert('Please select an agent first')
+      showToast('Please select an agent first', 'error')
       return
     }
-    message = `Task sent to agent ${currentAgent}`
+    agentId = currentAgent
   } else {
-    // Supervisor view - check for mentions
     const mentions = extractMentions(task)
     if(mentions.length > 0) {
-      message = `Task sent to agents: ${mentions.join(', ')}`
-    } else {
-      message = 'General task sent for auto-assignment to available agents'
+      agentId = mentions[0]
+      cleanTask = task.replace(/@[\w-]+/g, '').trim()
     }
   }
-  
-  alert(message)
-  input.value = ''
+
+  try {
+    const response = await fetch('/api/send-task', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({task: cleanTask, agent_id: agentId})
+    })
+    const result = await response.json()
+    if(result.success) {
+      showToast(result.message, 'success')
+      input.value = ''
+    } else {
+      showToast(result.error || 'Failed to send task', 'error')
+    }
+  } catch(e) {
+    showToast('Failed to connect to server', 'error')
+  }
 }
 
 // Enhanced UX interactions
@@ -3062,8 +3284,7 @@ async function updateSupervisorGrid() {
     
   } catch(e) {
     console.warn('Supervisor grid update failed:', e.message)
-    const grid = $("supervisorGrid")
-    grid.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 40px; color: var(--muted);">Failed to load agents</div>`
+    showToast('Connection lost - server may be down', 'error')
   }
 }
 
@@ -3132,6 +3353,10 @@ async function updateAgentTileContent(agent, tile) {
         <div>
           <div class="agentTileId">${agent.id || 'Unknown'}</div>
           <div class="agentTileTask" onclick="event.stopPropagation(); showTaskModal('${agent.id}', \`${(agent.task || 'No active task').replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`)" title="Click to view full task">${agent.task || 'No active task'}</div>
+        </div>
+        <div class="agentTileControls">
+          <button class="tileAction" onclick="event.stopPropagation(); stopAgent('${agent.id}')">Pause</button>
+          <button class="tileAction danger" onclick="event.stopPropagation(); disconnectAgent('${agent.id}')">Remove</button>
         </div>
       </div>
       
@@ -3250,11 +3475,43 @@ function showTaskModal(agentId, taskText) {
   showCustomAlert(`${agentId} - Full Task`, taskText)
 }
 
+async function stopAgent(agentId) {
+  try {
+    const response = await fetch(`/api/agent/${agentId}/stop`, {method: 'POST'})
+    const result = await response.json()
+    showToast(result.message || result.error, result.success ? 'success' : 'error')
+  } catch(e) {
+    showToast('Failed to connect to server', 'error')
+  }
+}
+
+async function disconnectAgent(agentId) {
+  if(!confirm(`Remove ${agentId}? This will disconnect and delete its data.`)) return
+  try {
+    const response = await fetch(`/api/agent/${agentId}/disconnect`, {method: 'POST'})
+    const result = await response.json()
+    showToast(result.message || result.error, result.success ? 'success' : 'error')
+  } catch(e) {
+    showToast('Failed to connect to server', 'error')
+  }
+}
+
+async function stopServer() {
+  if(!confirm('Shutdown the Harmony server? All agents will be disconnected.')) return
+  try {
+    await fetch('/api/server/stop', {method: 'POST'})
+  } catch(e) {
+    // Expected - server is shutting down
+  }
+  showGoodbye()
+}
+
 // Connection overlay functions
 function showConnectionOverlay() {
   const overlay = $("connectionOverlay")
+  overlay.classList.remove('error')
   overlay.classList.add('active')
-  
+
   // Initialize Lucide icons
   if (typeof lucide !== 'undefined') {
     lucide.createIcons()
@@ -3264,6 +3521,43 @@ function showConnectionOverlay() {
 function hideConnectionOverlay() {
   const overlay = $("connectionOverlay")
   overlay.classList.remove('active')
+  overlay.classList.remove('error')
+}
+
+function showToast(message, type = 'info') {
+  const toast = $("toast")
+  const msgEl = $("toastMessage")
+  const iconEl = toast.querySelector('i')
+
+  msgEl.textContent = message
+  toast.className = 'toast show ' + type
+
+  const iconMap = {info: 'info', error: 'alert-circle', success: 'check-circle'}
+  iconEl.setAttribute('data-lucide', iconMap[type] || 'info')
+
+  if (typeof lucide !== 'undefined') {
+    lucide.createIcons()
+  }
+
+  setTimeout(() => toast.classList.remove('show'), 3000)
+}
+
+function showGoodbye() {
+  const overlay = $("connectionOverlay")
+  const titleEl = overlay.querySelector('.connectionOverlayTitle')
+  const subtitleEl = overlay.querySelector('.connectionOverlaySubtitle')
+  const bodyEl = overlay.querySelector('.connectionOverlayBody')
+
+  titleEl.textContent = 'See you next time!'
+  subtitleEl.innerHTML = 'Harmony server has been shut down<div class="goodbyeActions"><a href="https://github.com/danielreiman/Harmony" target="_blank" class="goodbyeBtn"><i data-lucide="github"></i>View on GitHub</a><button class="goodbyeBtn" onclick="location.reload()"><i data-lucide="refresh-cw"></i>Reconnect</button></div><div style="margin-top:32px;color:rgba(255,255,255,0.6);font-size:13px;">To restart: <code style="background:rgba(255,255,255,0.1);padding:4px 8px;border-radius:4px;">python server/server.py</code></div>'
+  bodyEl.style.display = 'none'
+
+  overlay.classList.remove('error')
+  overlay.classList.add('active', 'goodbye')
+
+  if (typeof lucide !== 'undefined') {
+    lucide.createIcons()
+  }
 }
 
 // Single view empty state functions
@@ -3382,6 +3676,116 @@ def screen_file(agent_id):
     return resp
 
 
+@app.route("/api/send-task", methods=["POST"])
+def send_task():
+    if _agents is None or _tasks is None:
+        return jsonify({"success": False, "error": "Dashboard not connected to server"}), 503
+
+    data = request.json or {}
+    task = data.get("task", "").strip()
+    agent_id = data.get("agent_id")
+
+    if not task:
+        return jsonify({"success": False, "error": "Task is required"}), 400
+
+    with _agents_lock:
+        if agent_id:
+            agent = _agents.get(agent_id)
+            if not agent:
+                return jsonify({"success": False, "error": f"Agent {agent_id} not found"}), 404
+            if agent.status == "idle":
+                agent.assign(task)
+                return jsonify({"success": True, "message": f"Task assigned to {agent_id}"})
+            else:
+                agent.history.append({"role": "user", "content": task})
+                return jsonify({"success": True, "message": f"Message sent to {agent_id}"})
+        else:
+            _tasks.append(task)
+            return jsonify({"success": True, "message": "Task added to queue"})
+
+
+@app.route("/api/agent/<agent_id>/stop", methods=["POST"])
+def stop_agent(agent_id):
+    if _agents is None:
+        return jsonify({"success": False, "error": "Dashboard not connected to server"}), 503
+
+    with _agents_lock:
+        agent = _agents.get(agent_id)
+        if not agent:
+            return jsonify({"success": False, "error": f"Agent {agent_id} not found"}), 404
+
+        if agent.status == "working":
+            agent.status = "idle"
+            agent.task = None
+            agent.status_msg = "Stopped"
+            agent.save()
+            return jsonify({"success": True, "message": f"Agent {agent_id} stopped"})
+        else:
+            return jsonify({"success": False, "error": f"Agent {agent_id} is not working"}), 400
+
+
+@app.route("/api/agent/<agent_id>/disconnect", methods=["POST"])
+def disconnect_agent(agent_id):
+    if _agents is None:
+        return jsonify({"success": False, "error": "Dashboard not connected to server"}), 503
+
+    with _agents_lock:
+        agent = _agents.get(agent_id)
+        if not agent:
+            return jsonify({"success": False, "error": f"Agent {agent_id} not found"}), 404
+
+        agent.status = "disconnected"
+        try:
+            agent.conn.close()
+        except:
+            pass
+
+        # Clean up agent files
+        try:
+            soul_path = os.path.join(RUNTIME_DIR, f"{agent_id}.soul")
+            screen_path = os.path.join(RUNTIME_DIR, f"screenshot_{agent_id}.png")
+            if os.path.exists(soul_path):
+                os.remove(soul_path)
+            if os.path.exists(screen_path):
+                os.remove(screen_path)
+        except:
+            pass
+
+        # Remove from agents dict
+        if agent_id in _agents:
+            del _agents[agent_id]
+
+        return jsonify({"success": True, "message": f"Agent {agent_id} removed"})
+
+
+@app.route("/api/server/stop", methods=["POST"])
+def stop_server():
+    import shutil
+    try:
+        if os.path.exists(RUNTIME_DIR):
+            shutil.rmtree(RUNTIME_DIR)
+    except:
+        pass
+    os.kill(os.getpid(), signal.SIGINT)
+    return jsonify({"success": True, "message": "Server shutting down"})
+
+
+@app.route("/api/tasks", methods=["GET"])
+def get_tasks():
+    if _tasks is None:
+        return jsonify([])
+    return jsonify(list(_tasks))
+
+
+def run_dashboard(host="0.0.0.0", port=1234):
+    os.makedirs(RUNTIME_DIR, exist_ok=True)
+    try:
+        from waitress import serve
+        serve(app, host=host, port=port, threads=4, _quiet=True)
+    except ImportError:
+        app.run(host=host, port=port, debug=False, threaded=True)
+
+
 if __name__=="__main__":
-    os.makedirs(RUNTIME_DIR,exist_ok=True)
-    app.run(port=1234,debug=False)
+    os.makedirs(RUNTIME_DIR, exist_ok=True)
+    run_dashboard()
