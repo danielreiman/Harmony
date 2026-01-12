@@ -1530,6 +1530,19 @@ body{
   font-size:14px;
   color:var(--muted);
   font-style:italic;
+  max-height:2.8em;
+  line-height:1.4;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  display:-webkit-box;
+  -webkit-line-clamp:2;
+  -webkit-box-orient:vertical;
+  cursor:pointer;
+  transition:var(--transition);
+}
+
+.agentTileTask:hover{
+  color:var(--accent);
 }
 
 
@@ -3118,7 +3131,7 @@ async function updateAgentTileContent(agent, tile) {
       <div class="agentTileHeader">
         <div>
           <div class="agentTileId">${agent.id || 'Unknown'}</div>
-          <div class="agentTileTask">${agent.task || 'No active task'}</div>
+          <div class="agentTileTask" onclick="event.stopPropagation(); showTaskModal('${agent.id}', \`${(agent.task || 'No active task').replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`)" title="Click to view full task">${agent.task || 'No active task'}</div>
         </div>
       </div>
       
@@ -3216,21 +3229,25 @@ function showCustomAlert(title, message) {
   const modal = $("customAlert")
   const titleElement = $("customAlertTitle")
   const bodyElement = $("customAlertBody")
-  
+
   titleElement.textContent = title
   bodyElement.textContent = message
-  
+
   // Initialize Lucide icons
   if (typeof lucide !== 'undefined') {
     lucide.createIcons()
   }
-  
+
   modal.classList.add('open')
 }
 
 function closeCustomAlert() {
   const modal = $("customAlert")
   modal.classList.remove('open')
+}
+
+function showTaskModal(agentId, taskText) {
+  showCustomAlert(`${agentId} - Full Task`, taskText)
 }
 
 // Connection overlay functions
