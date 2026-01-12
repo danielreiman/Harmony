@@ -1,221 +1,253 @@
-import time, json, threading, os
+import json
+import os
+import threading
+import time
 from ollama import Client
-
 import config
 from prompts import MAIN_PROMPT
 from helpers import send, recv, recv_file
 
-BASE_SCREENSHOT_DIR = "./runtime/"
+RUNTIME_DIR = "./runtime/"
 MAX_HISTORY = 12
+MAX_PHASE_STUCK = 5
 
 
 class Agent:
-    def __init__(self, id, model_name, conn):
+    def __init__(self, id: str, model: str, conn):
+        # Identity
         self.id = id
-        self.model_name = model_name
+        self.model = model
         self.conn = conn
 
+        # State
         self.status = "idle"
         self.task = None
+        self.status_msg = "Idle"
+
+        # Execution tracking
+        self.cycles = 0
+        self.phase = None
+        self.phase_count = 0
+        self.step = {}
+
+        # AI conversation
         self.history = []
 
-        self.status_text = "Idle"
-        self.step = {}
-        self.cycle_count = 0
-        self.current_phase = None
-        self.phase_count = 0
+        # File paths
+        self.screen_path = f"{RUNTIME_DIR}screenshot_{self.id}.png"
+        self.state_path = f"{RUNTIME_DIR}{self.id}.soul"
 
-        self.screenshot_path = f"{BASE_SCREENSHOT_DIR}screenshot_{self.id}.png"
+        # Threading
         self.event = threading.Event()
 
-        os.makedirs(BASE_SCREENSHOT_DIR, exist_ok=True)
-        self.state_path = f"{BASE_SCREENSHOT_DIR}{self.id}.soul"
-
+        # Setup
+        os.makedirs(RUNTIME_DIR, exist_ok=True)
         api_key = config.OLLAMA_API_KEY
         if not api_key:
-            raise RuntimeError("No OLLAMA_API_KEY provided")
-
-        self.client = Client(
-            host="https://ollama.com",
-            headers={"Authorization": f"Bearer {api_key}"}
-        )
-
-        self.broadcast()
+            raise RuntimeError("OLLAMA_API_KEY not found")
+        self.ai = Client(host="https://ollama.com", headers={"Authorization": f"Bearer {api_key}"})
+        self.save()
 
     def activate(self):
         try:
             while True:
                 self.event.wait()
                 self.event.clear()
-                if not self.run():
+
+                success = self.run()
+                if not success:
                     break
+
                 self.status = "idle"
-                self.status_text = "Idle"
-                self.broadcast()
+                self.status_msg = "Idle"
+                self.save()
+
         except Exception as e:
-            print(f"[Agent {self.id}] Error: {e}")
+            print(f"[Agent {self.id}] Fatal error: {e}")
         finally:
             self.status = "disconnected"
+            print(f"[Agent {self.id}] Disconnected")
 
     def assign(self, task: str):
         self.task = task
         self.status = "working"
-        self.cycle_count = 0
-        self.current_phase = None
+        self.cycles = 0
+        self.phase = None
         self.phase_count = 0
+
         self.history = [
             {"role": "system", "content": MAIN_PROMPT},
             {"role": "user", "content": f"Research this topic: {task}"}
         ]
-        self.status_text = "Starting..."
-        self.broadcast()
+
+        self.status_msg = "Starting..."
+        self.save()
         self.event.set()
-        print(f"[Agent {self.id}] Task: {task[:60]}...")
+        print(f"[Agent {self.id}] Assigned: {task[:60]}...")
 
-    def run(self):
+    def run(self) -> bool:
         while self.status == "working" and self.task:
-            self.cycle_count += 1
+            self.cycles += 1
 
-            # ===== Capture Screen =====
-            self.status_text = "Looking..."
-            self.broadcast()
-
-            if not send({"type": "request_screenshot"}, self.conn):
+            if not self.look():
                 return False
 
-            if not recv_file(self.screenshot_path, self.conn):
-                return False
+            response = self.think()
+            self.parse(response)
 
-            self.history.append({
-                "role": "user",
-                "content": "Current screen:",
-                "images": [self.screenshot_path]
-            })
-
-            # ===== Think =====
-            self.status_text = "Thinking..."
-            self.broadcast()
-
-            ai_response = self.think()
-
-            # Remove image from history
-            if self.history and "images" in self.history[-1]:
-                self.history[-1].pop("images", None)
-            self.history.append({"role": "assistant", "content": ai_response["raw"]})
-
-            # Parse response
-            phase = ai_response.get("Step", "SEARCH")
-            self.step = {
-                "phase": phase,
-                "status_short": ai_response.get("Status", "Working..."),
-                "reasoning": ai_response.get("Reasoning", ""),
-                "action": ai_response.get("Next Action"),
-                "coordinate": ai_response.get("Coordinate"),
-                "value": ai_response.get("Value")
-            }
-
-            # Track phase changes
-            if phase == self.current_phase:
-                self.phase_count += 1
-            else:
-                self.current_phase = phase
-                self.phase_count = 1
-
-            # Warn if stuck on same phase too long
-            if self.phase_count > 5:
-                self.history.append({
-                    "role": "user",
-                    "content": f"You've been on {phase} step for {self.phase_count} actions. Move to the next step now. If SEARCH, go to READ. If READ, go to WRITE. If WRITE, go back to SEARCH."
-                })
-                print(f"[Agent {self.id}] Stuck on {phase} for {self.phase_count} actions")
-
-            # Check completion
-            if self.step["action"] in [None, "None"]:
-                self.status_text = "Done"
-                self.status = "idle"
-                self.broadcast()
-                print(f"[Agent {self.id}] Completed after {self.cycle_count} cycles")
+            if self.done():
+                print(f"[Agent {self.id}] Completed in {self.cycles} cycles")
                 return True
 
-            # ===== Execute =====
-            self.status_text = self.step.get("status_short", "Executing...")
-            self.broadcast()
-
-            client_step = {
-                "Next Action": ai_response.get("Next Action"),
-                "Coordinate": ai_response.get("Coordinate"),
-                "Value": ai_response.get("Value")
-            }
-
-            if not send({"type": "execute_step", "step": client_step}, self.conn):
+            if not self.act(response):
                 return False
-
-            response = recv(self.conn)
-            if not response:
-                return False
-
-            success = response.get("success", False)
-            self.step["success"] = success
-
-            if not success:
-                action = self.step.get("action", "")
-                print(f"[Agent {self.id}] Action failed: {action}")
-                self.history.append({
-                    "role": "user",
-                    "content": f"Action failed. Remember: click on a text field before typing. Try again with correct approach."
-                })
-
-            self.broadcast()
 
         return True
 
-    def think(self):
+    def look(self) -> bool:
+        self.status_msg = "Looking..."
+        self.save()
+
+        if not send({"type": "request_screenshot"}, self.conn):
+            print(f"[Agent {self.id}] Failed to request screenshot")
+            return False
+
+        if not recv_file(self.screen_path, self.conn):
+            print(f"[Agent {self.id}] Failed to receive screenshot")
+            return False
+
+        self.history.append({
+            "role": "user",
+            "content": "Current screen:",
+            "images": [self.screen_path]
+        })
+        return True
+
+    def think(self) -> dict:
+        self.status_msg = "Thinking..."
+        self.save()
+
         try:
             trimmed = self.history[:2] + self.history[-MAX_HISTORY:]
-
-            result = self.client.chat(model=self.model_name, messages=trimmed)
+            result = self.ai.chat(model=self.model, messages=trimmed)
             raw = result["message"]["content"].strip()
 
             try:
                 start = raw.find("{")
                 end = raw.rfind("}") + 1
+                if start == -1 or end == 0:
+                    raise ValueError("No JSON found")
+
                 parsed = json.loads(raw[start:end])
                 parsed["raw"] = raw
+
+                if self.history and "images" in self.history[-1]:
+                    self.history[-1].pop("images", None)
+
+                self.history.append({"role": "assistant", "content": raw})
                 return parsed
+
             except (json.JSONDecodeError, ValueError) as e:
                 print(f"[Agent {self.id}] Parse error: {e}")
                 return {
                     "Step": "SEARCH",
-                    "Status": "Error",
+                    "Status": "Parse Error",
                     "Next Action": "None",
                     "Reasoning": str(e),
                     "raw": raw
                 }
-
         except Exception as e:
-            print(f"[Agent {self.id}] API error: {e}")
+            print(f"[Agent {self.id}] AI error: {e}")
             return {
                 "Step": "SEARCH",
-                "Status": "Error",
+                "Status": "API Error",
                 "Next Action": "None",
                 "Reasoning": str(e),
                 "raw": str(e)
             }
 
-    def broadcast(self):
+    def parse(self, response: dict):
+        current_phase = response.get("Step", "SEARCH")
+
+        self.step = {
+            "phase": current_phase,
+            "status_short": response.get("Status", "Working..."),
+            "reasoning": response.get("Reasoning", ""),
+            "action": response.get("Next Action"),
+            "coordinate": response.get("Coordinate"),
+            "value": response.get("Value")
+        }
+
+        if current_phase == self.phase:
+            self.phase_count += 1
+        else:
+            self.phase = current_phase
+            self.phase_count = 1
+
+        if self.phase_count > MAX_PHASE_STUCK:
+            hint = f"You've been on {current_phase} for {self.phase_count} actions. Move to next step. SEARCH→READ→WRITE→SEARCH."
+            self.history.append({"role": "user", "content": hint})
+            print(f"[Agent {self.id}] Stuck on {current_phase} for {self.phase_count} actions")
+
+    def done(self) -> bool:
+        action = self.step.get("action")
+        if action in [None, "None"]:
+            self.status = "idle"
+            self.status_msg = "Done"
+            self.save()
+            return True
+        return False
+
+    def act(self, response: dict) -> bool:
+        self.status_msg = self.step.get("status_short", "Acting...")
+        self.save()
+
+        cmd = {
+            "Next Action": response.get("Next Action"),
+            "Coordinate": response.get("Coordinate"),
+            "Value": response.get("Value")
+        }
+
+        if not send({"type": "execute_step", "step": cmd}, self.conn):
+            print(f"[Agent {self.id}] Failed to send action")
+            return False
+
+        result = recv(self.conn)
+        if not result:
+            print(f"[Agent {self.id}] Failed to receive result")
+            return False
+
+        success = result.get("success", False)
+        self.step["success"] = success
+
+        if not success:
+            action = self.step.get("action", "unknown")
+            print(f"[Agent {self.id}] Failed: {action}")
+            self.history.append({
+                "role": "user",
+                "content": "Action failed. Tips: 1) Click text field BEFORE typing 2) Use correct coordinates 3) Maximize windows. Try again."
+            })
+
+        self.save()
+        return True
+
+    def save(self):
         data = {
             "id": self.id,
             "status": self.status,
             "task": self.task,
-            "status_text": self.status_text,
+            "status_text": self.status_msg,
             "step": self.step,
-            "cycle": self.cycle_count,
-            "phase": self.current_phase,
+            "cycle": self.cycles,
+            "phase": self.phase,
             "phase_count": self.phase_count,
             "ts": time.time()
         }
 
-        tmp = self.state_path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
-        os.replace(tmp, self.state_path)
+        temp = self.state_path + ".tmp"
+        try:
+            with open(temp, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+            os.replace(temp, self.state_path)
+        except Exception as e:
+            print(f"[Agent {self.id}] Save failed: {e}")

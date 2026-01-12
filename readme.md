@@ -1,140 +1,192 @@
 <p>
-  <img src="icon.png" alt="Harmony icon" width="150">
+  <img src="icon.png" alt="Harmony" width="150">
 </p>
 
-<h1 >Harmony Project</h1>
+<h1>Harmony</h1>
 
 <p>
   <img alt="GitHub last commit" src="https://img.shields.io/github/last-commit/danielreiman/Harmony">
 </p>
 
-> [!WARNING]  
-> This version currently has an unresolved issue that may cause sudden disconnections. Use with caution.
+<p>
+  <strong>Distributed automation system for parallel task execution across multiple computers</strong>
+</p>
 
 > [!NOTE]  
 > To use the single agent version of Harmony without the orchestrator, parallel agents, or the central server, switch to the `single-agent` branch.
-> 
 
-Harmony lets you give one goal and watch it unfold across multiple computers.
-The system breaks big tasks into small steps and executes them in parallel across connected desktops.
+## Overview
 
----
+Harmony is a client-server automation system that distributes tasks across multiple computers. A central server coordinates AI-powered agents, each controlling a connected client machine. Tasks are automatically split and executed in parallel across all available clients.
 
-## Setup
+**Key Features:**
+- Vision-based automation using AI models
+- Automatic LAN discovery
+- Parallel task execution
+- Real-time agent monitoring via web dashboard
+- One agent per client architecture
 
-Create a virtual environment and install dependencies.
+## Quick Start
 
-### macOS / Linux
+### 1. Installation
 
 ```bash
+# macOS/Linux
 python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
-```
 
-### Windows PowerShell
-
-```powershell
+# Windows
 python -m venv .venv; .\.venv\Scripts\Activate.ps1; pip install -r requirements.txt
 ```
 
-The setup process is identical for server and client machines.
+### 2. Server Setup
 
----
-
-## Server Configuration
-
-Before starting the server, run the setup script:
+Configure API credentials:
 
 ```bash
-python setup.py
+python server/setup.py
 ```
 
-The script will:
-
-* Ask for your **Ollama API key**
-* Create a minimal `.env` file automatically
-
----
-
-## Running Harmony
-
-### Start the Server
+Start the server:
 
 ```bash
-python server.py
+python server/server.py
 ```
 
-The server:
+The server listens on port **1222** and broadcasts on UDP port **3030** for client discovery.
 
-* Loads the API key from `.env`
-* Listens for clients
-* Creates one Agent per client
-* Assigns steps to idle agents
-
----
-
-### Start a Client
+### 3. Client Setup
 
 On each client machine:
 
 ```bash
-python client.py
+python client/client.py
 ```
 
-Each client:
+Clients auto-discover the server via UDP broadcast and connect automatically.
 
-* Connects to the server
-* Sends screenshots on demand
-* Executes steps sent by its Agent
+### 4. Monitor (Optional)
 
-You may run as many clients as you want.
+View agent status at:
 
----
+```
+http://localhost:1234
+```
 
-## How It Works
+## Architecture
 
-1. Clients connect to the server
-2. The server registers one Agent per client
-3. Each Agent stays alive in its own thread
-4. Agents sit idle until given work
-5. A Manager loop assigns tasks to idle agents
-6. Agents execute the steps and report results
+```
+Server (Port 1222)
+├── Manager          # Task distribution
+├── Agents           # One per client connection
+└── Dashboard        # Web UI (Port 1234)
 
-More clients means more parallel execution.
+Client (Auto-discover)
+├── Screenshot capture
+├── Action execution
+└── Result reporting
+```
 
----
+### Components
 
-## Architecture Overview
+**Server** (`server/`)
+- `server.py` - Main TCP server, handles client connections
+- `agent.py` - Agent class representing each client
+- `manager.py` - Task queue and distribution system
+- `dashboard.py` - Flask web dashboard
+- `config.py` - Environment configuration
+- `helpers.py` - Network utilities
 
-### Server
+**Client** (`client/`)
+- `client.py` - Connects to server and executes actions
+- `helpers.py` - Action execution and server discovery
 
-* Hosts all planning and AI logic
-* Tracks and manages agents
-* Distributes tasks
+### Data Flow
 
-### Clients
+1. Client connects to server (auto-discovered via UDP)
+2. Server creates Agent instance for the client
+3. Manager assigns task from queue to idle Agent
+4. Agent requests screenshot from client
+5. AI model analyzes screenshot and generates action
+6. Client executes action and reports result
+7. Process repeats until task completion
 
-* Execute actions only
-* Capture screens
-* Send results back to the server
+### Threading Model
 
-### Agents
+- **Server**: One thread per agent + manager thread + broadcast thread
+- **Client**: Single-threaded with blocking socket communication
+- **Agents**: Event-driven execution in separate daemon threads
 
-* Server-side representations of each client
-* One per connection
-* Persistent workers
+## Configuration
 
-### Manager
+### Environment Variables
 
-* Matches idle agents with pending tasks
-* Runs independently from agents and clients
+Create `.env` in project root:
 
----
+```env
+OLLAMA_API_KEY=your_api_key_here
+```
 
-## Ready
-Once setup and running, Harmony becomes a centralized command system that coordinates and automates multiple desktops at once.
+### Model Configuration
 
+Default model: `qwen3-vl:235b-instruct-cloud`
 
+Configured in `server/server.py`:
 
+```python
+MODEL = "qwen3-vl:235b-instruct-cloud"
+```
 
+## Runtime Files
 
+```
+runtime/
+├── screenshot_agent-{id}.png    # Agent screenshots
+└── agent-{id}.soul              # Agent state files
+```
 
+## Development
+
+### Project Structure
+
+```
+Harmony/
+├── server/
+│   ├── server.py          # Main server
+│   ├── agent.py           # Agent logic
+│   ├── manager.py         # Task manager
+│   ├── dashboard.py       # Web UI
+│   ├── config.py          # Configuration
+│   ├── helpers.py         # Network utils
+│   ├── prompts.py         # AI prompts
+│   └── setup.py           # Initial setup
+├── client/
+│   ├── client.py          # Client application
+│   └── helpers.py         # Client utilities
+├── requirements.txt       # Dependencies
+└── CLAUDE.md             # Development guide
+```
+
+### Agent Execution Flow
+
+```
+agent.activate()      # Wait for task assignment
+  → agent.run()       # Main execution loop
+    → agent.look()    # Capture screenshot
+    → agent.think()   # AI decision
+    → agent.parse()   # Parse response
+    → agent.done()    # Check completion
+    → agent.act()     # Execute action
+    → agent.save()    # Save state
+```
+
+## Technical Details
+
+- **Protocol**: TCP for client-server, UDP for discovery
+- **Discovery**: Broadcast on 255.255.255.255:3030
+- **Timeout**: 120 seconds for long operations
+- **History**: Last 12 messages retained per agent
+- **Phase tracking**: Monitors SEARCH → READ → WRITE workflow
+
+## License
+
+MIT License - See LICENSE file for details
