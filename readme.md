@@ -162,7 +162,6 @@ Harmony/
 │   ├── client.py          # Client application
 │   └── helpers.py         # Client utilities
 ├── requirements.txt       # Dependencies
-└── CLAUDE.md             # Development guide
 ```
 
 ### Agent Execution Flow
@@ -177,4 +176,5 @@ agent.activate()      # Wait for task assignment
     → agent.act()     # Execute action
     → agent.save()    # Save state
 ```
+
 
