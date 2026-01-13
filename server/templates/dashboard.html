@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Harmony</title>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+</head>
+<body>
+
+<!-- Global Header (shared between views) -->
+<div class="globalHeader">
+  <div class="globalHeaderLeft">
+    <div class="brandTitle">Harmony</div>
+    <div class="brandSubtitle">Parallel Agents, One Purpose</div>
+  </div>
+
+  <div class="globalHeaderCenter">
+    <div class="agentDropdown" id="agentDropdown">
+      <div class="agentSelector" id="agentSelector">
+        <span id="selectedAgent">Agent-1</span>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+      </div>
+      <div class="agentDropdownMenu" id="agentDropdownMenu">
+        <!-- Options populated by JS -->
+      </div>
+    </div>
+  </div>
+
+  <div class="globalHeaderRight">
+    <button class="controlBtn stopServerBtn" onclick="stopServer()" title="Shutdown server">
+      <i data-lucide="power"></i>
+    </button>
+    <a class="githubBtn" href="https://github.com/danielreiman/Harmony" target="_blank" rel="noreferrer">
+      <svg viewBox="0 0 24 24">
+        <path d="M12 .5C5.73.5.5 5.73.5 12c0 5.1 3.29 9.41 7.86 10.94.58.11.79-.25.79-.56v-2.03c-3.2.7-3.87-1.54-3.87-1.54-.53-1.35-1.3-1.71-1.3-1.71-1.06-.72.08-.7.08-.7 1.17.08 1.78 1.2 1.78 1.2 1.04 1.78 2.73 1.27 3.4.97.1-.75.4-1.27.73-1.56-2.55-.29-5.23-1.27-5.23-5.66 0-1.25.45-2.27 1.19-3.07-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.17a11.1 11.1 0 012.9-.39c.98 0 1.97.13 2.9.39 2.2-1.48 3.17-1.17 3.17-1.17.63 1.59.23 2.76.11 3.05.74.8 1.18 1.82 1.18 3.07 0 4.4-2.69 5.36-5.25 5.65.41.35.78 1.05.78 2.12v3.14c0 .31.21.68.8.56A11.51 11.51 0 0023.5 12C23.5 5.73 18.27.5 12 .5z"/>
+      </svg>
+    </a>
+    <button class="fullscreenBtn" onclick="toggleFullscreen()" title="Toggle fullscreen">
+      <i data-lucide="maximize-2"></i>
+    </button>
+  </div>
+</div>
+
+<!-- View Mode Toggle -->
+<div class="viewModeToggle">
+  <button class="viewToggleBtn active" onclick="switchView('single')"><span>Single</span></button>
+  <button class="viewToggleBtn" onclick="switchView('supervisor')"><span>Supervisor</span></button>
+</div>
+
+<!-- Single Agent View -->
+<div id="singleView" class="singleView active">
+  <div class="stage">
+    <div class="stageContainer">
+      <div class="browserFrame">
+        <div class="browserTop">
+          <div class="win red"></div>
+          <div class="win yellow"></div>
+          <div class="win green"></div>
+          <div class="address" id="actionTop">Waiting…</div>
+        </div>
+
+        <div class="viewport" id="viewport">
+          <img id="screen" class="screenImg"/>
+          <div class="statusCap" id="statusCap">Idle</div>
+          <div class="thought hidden" id="thought"></div>
+
+          <!-- Waiting for Task State -->
+          <div class="waitingState" id="waitingState">
+            <i data-lucide="circle-dot" class="waitingIcon"></i>
+            <div class="waitingAgentId" id="waitingAgentId">agent-000000</div>
+            <div class="waitingTitle">Waiting for task</div>
+            <div class="waitingSubtitle">This agent is connected and ready to work</div>
+            <div class="waitingMeta">
+              <div class="waitingMetaItem">
+                <i data-lucide="wifi"></i>
+                <span>Connected</span>
+              </div>
+              <div class="waitingMetaItem">
+                <i data-lucide="cpu"></i>
+                <span>Idle</span>
+              </div>
+            </div>
+            <div class="waitingHint">
+              <i data-lucide="arrow-down"></i>
+              <span>Type a task below to begin automation</span>
+            </div>
+          </div>
+
+          <!-- Single View Empty State -->
+          <div class="singleEmptyState" id="singleEmptyState" style="display: none;">
+            <div class="singleEmptyContent">
+              <i data-lucide="monitor-off" class="singleEmptyIcon"></i>
+              <div class="singleEmptyTitle">No Agents Available</div>
+              <div class="singleEmptyText">Connect agents to start automation</div>
+              <button class="singleEmptyButton" onclick="switchView('supervisor')">
+                <i data-lucide="grid-3x3" style="width: 16px; height: 16px; margin-right: 8px;"></i>
+                View Supervisor Mode
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Task Status Panel -->
+      <div class="taskStatusPanel" id="taskStatusPanel">
+        <div class="taskStatusContent">
+          <div class="taskStatusLabel">Current Task</div>
+          <div class="taskStatusText" id="taskStatusText">No active task</div>
+        </div>
+        <div class="singleReasoningSection" id="singleReasoningSection">
+          <div class="singleReasoningLabel">
+            <i data-lucide="brain"></i>
+            Reasoning
+          </div>
+          <div class="singleReasoningText" id="singleReasoningText">Waiting for agent activity...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Supervisor View -->
+<div id="supervisorView" class="supervisorView">
+
+  <div class="agentsSectionHeader">
+    <div class="agentsSectionTitle">Your Agents</div>
+    <div class="agentsSectionStats" id="supervisorStats">
+      <span id="totalAgents">0</span> Total
+      <span class="statDot"></span>
+      <span id="activeAgents">0</span> Active
+      <span class="statDot"></span>
+      <span id="idleAgents">0</span> Idle
+    </div>
+  </div>
+
+  <div class="agentsGrid" id="supervisorGrid">
+    <!-- Agent tiles will be populated here -->
+  </div>
+  
+  <!-- Empty State View -->
+  <div class="emptyState" id="emptyState" style="display: none;">
+    <div class="emptyStateContent">
+      <div class="emptyStateIcon">
+        <i data-lucide="monitor" class="emptyStateIconLarge"></i>
+        <i data-lucide="plus" class="emptyStateIconPlus"></i>
+      </div>
+      
+      <div class="emptyStateTitle">No Agents Connected</div>
+      <div class="emptyStateSubtitle">Ready to orchestrate intelligent automation across your network</div>
+      
+      <div class="emptyStateInstructions">
+        <div class="emptyStateStep">
+          <div class="emptyStateStepNumber">1</div>
+          <div class="emptyStateStepContent">
+            <div class="emptyStateStepTitle">Launch Client</div>
+            <div class="emptyStateStepText">Run <code>python client/client.py</code> on target computers</div>
+          </div>
+        </div>
+        
+        <div class="emptyStateStep">
+          <div class="emptyStateStepNumber">2</div>
+          <div class="emptyStateStepContent">
+            <div class="emptyStateStepTitle">Auto-Discovery</div>
+            <div class="emptyStateStepText">Agents will automatically discover and connect to this server</div>
+          </div>
+        </div>
+        
+        <div class="emptyStateStep">
+          <div class="emptyStateStepNumber">3</div>
+          <div class="emptyStateStepContent">
+            <div class="emptyStateStepTitle">Deploy Tasks</div>
+            <div class="emptyStateStepText">Assign intelligent automation tasks to connected agents</div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="emptyStateFooter">
+        <div class="emptyStateNote">
+          <i data-lucide="info" class="emptyStateNoteIcon"></i>
+          <span>Each connected computer becomes an intelligent agent capable of autonomous task execution</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- Floating Actions -->
+<div class="floatingActions">
+  <button class="actionButton primary" title="View Results" id="viewResultsBtn">
+    View Results
+  </button>
+</div>
+
+<!-- Prompt Section -->
+<div class="promptSection" id="promptSection">
+  <div class="mentionDropdown" id="mentionDropdown"></div>
+  <div class="promptInputWrapper">
+    <input type="text" class="promptInput" id="promptInput" placeholder="Enter task instructions...">
+    <button class="researchToggle" id="researchToggle" onclick="toggleResearchMode()" title="Toggle research mode">
+      <i data-lucide="telescope"></i>
+      <span class="researchToggleText">Research</span>
+    </button>
+  </div>
+  <button class="promptSend primary" id="promptSend">Send</button>
+</div>
+
+<!-- Results Modal -->
+<div class="resultsModal" id="resultsModal">
+  <div class="resultsModalContent">
+    <div class="resultsModalHeader">
+      <h2 class="resultsModalTitle">Automation Results</h2>
+      <button class="resultsModalClose" onclick="closeResultsModal()">✕</button>
+    </div>
+    <div class="resultsModalBody">
+      <p>Your automation session results will be displayed here once the feature is fully implemented.</p>
+      
+      <div class="resultsFeature">
+        <strong>Coming Soon:</strong> Detailed automation reports with step-by-step execution logs, screenshots, and performance metrics.
+      </div>
+      
+      <div class="resultsFeature">
+        <strong>Future Features:</strong> Export results as PDF, CSV, or JSON formats for further analysis and record keeping.
+      </div>
+      
+      <p>This comprehensive results view will help you analyze the effectiveness of your automation tasks and optimize future workflows.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Toast Notification -->
+<div class="toast" id="toast">
+  <i data-lucide="info"></i>
+  <span id="toastMessage">Message</span>
+</div>
+
+<!-- Custom Alert Modal -->
+<div class="customAlert" id="customAlert">
+  <div class="customAlertContent">
+    <div class="customAlertHeader">
+      <div class="customAlertTitleSection">
+        <i data-lucide="message-square" class="customAlertIcon"></i>
+        <h3 class="customAlertTitle" id="customAlertTitle">Agent Reasoning</h3>
+      </div>
+    </div>
+    <div class="customAlertBody" id="customAlertBody">
+      <!-- Content will be populated by JavaScript -->
+    </div>
+    <div class="customAlertFooter">
+      <button class="customAlertOk" onclick="closeCustomAlert()">OK</button>
+    </div>
+  </div>
+</div>
+
+<!-- Full Screen Connection Overlay -->
+<div class="connectionOverlay" id="connectionOverlay">
+  <div class="connectionOverlayContent">
+    <div class="connectionOverlayHeader">
+      <div class="connectionOverlayLogo">
+        <img src="/icon.png" alt="Harmony" class="harmonyLogo">
+      </div>
+      <div class="connectionOverlayTitle">Harmony</div>
+      <div class="connectionOverlaySubtitle">Automate computers from anywhere</div>
+      <div class="connectionActions">
+        <a href="https://github.com/danielreiman/Harmony" target="_blank" class="connectionActionButton primary">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
+            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+          </svg>
+          Get started on GitHub
+        </a>
+      </div>
+    </div>
+
+    <div class="connectionOverlayBody">
+      <div class="connectionWaiting">
+        <div class="connectionWaitingDots">
+          <div class="connectionDot"></div>
+          <div class="connectionDot"></div>
+          <div class="connectionDot"></div>
+        </div>
+        <div class="connectionWaitingText">Waiting for agents...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+
+</body>
+</html>

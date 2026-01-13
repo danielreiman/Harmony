@@ -4,7 +4,7 @@ import threading
 import time
 from ollama import Client
 import config
-from prompts import MAIN_PROMPT
+from prompts import RESEARCH_PROMPT, TASK_PROMPT
 from helpers import send, recv, recv_file
 
 RUNTIME_DIR = "./runtime/"
@@ -68,22 +68,31 @@ class Agent:
             self.status = "disconnected"
             print(f"[Agent {self.id}] Disconnected")
 
-    def assign(self, task: str):
+    def assign(self, task: str, research_mode: bool = False):
         self.task = task
         self.status = "working"
         self.cycles = 0
         self.phase = None
         self.phase_count = 0
 
+        # Select prompt based on mode
+        if research_mode:
+            prompt = RESEARCH_PROMPT
+            user_msg = f"Research this topic and document findings with proper structure (Introduction, Body, Conclusion, Bibliography): {task}"
+        else:
+            prompt = TASK_PROMPT
+            user_msg = f"Execute this task directly (no research needed): {task}"
+
         self.history = [
-            {"role": "system", "content": MAIN_PROMPT},
-            {"role": "user", "content": f"Research this topic: {task}"}
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": user_msg}
         ]
 
+        mode_text = "research" if research_mode else "task"
         self.status_msg = "Starting..."
         self.save()
         self.event.set()
-        print(f"[Agent {self.id}] Assigned: {task[:60]}...")
+        print(f"[Agent {self.id}] Assigned ({mode_text}): {task[:60]}...")
 
     def run(self) -> bool:
         while self.status == "working" and self.task:
