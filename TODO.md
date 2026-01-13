@@ -9,3 +9,12 @@
 - [ ] Add a control client with a UI to manage agents, view status, and interact with the system.
 
 
+## Bugs
+
+- [ ] The Goodbye view should not display the “Get Started” button. It should show a “View on GitHub” button next to the Reconnect button.
+- [ ] The Supervisor view layout and color scheme appear inconsistent and need adjustment.
+- [ ] Errors occur when sending a task.
+- [ ] The text field is not being cleared after submission.
+- [ ] Remove the floating reasoning and task card when no task is assigned from the Single-View.
+- [ ] Remove the tool buttons under each agent in the Supervisor view when no task is assigned.
+
