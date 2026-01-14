@@ -2,7 +2,7 @@ import os
 import socket
 import threading
 import uuid
-from helpers import broadcast, get_lan_ip
+from helpers import broadcast, get_lan_ip, send
 from agent import Agent
 from manager import Manager
 from dashboard import init_dashboard, run_dashboard

@@ -77,19 +77,3 @@ class Manager:
         except Exception as e:
             print(f"[Manager] Split error: {e}")
             self.tasks.append(task)
-
-    def prompt(self):
-        while True:
-            no_tasks = len(self.tasks) == 0
-
-            with self.lock:
-                all_idle = all(agent.status == "idle" for agent in self.agents.values())
-
-            if no_tasks and all_idle and len(self.agents) > 0:
-                print()
-                task = input("New task (or Enter to skip): ").strip()
-                if task:
-                    print("[Manager] Splitting task...")
-                    self.split(task)
-
-            time.sleep(1)

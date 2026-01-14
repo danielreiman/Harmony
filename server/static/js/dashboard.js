@@ -1,7 +1,5 @@
 const $=id=>document.getElementById(id)
 let currentAgent=null
-let lastCoord={x:null,y:null}
-let imgNat={w:820,h:520}
 let lastImgUrl=null
 
 function normalizeServerBase(raw) {
@@ -62,15 +60,12 @@ function sentence(s){
   return s.action
 }
 
-function placeBubble(vp,el,x,y){
-  const off=14
-  const w=vp.clientWidth,h=vp.clientHeight
-  const r=el.getBoundingClientRect()
-  let tx=x+off,ty=y+off
-  if(tx+r.width>w)tx=x-off-r.width
-  if(ty+r.height>h)ty=y-off-r.height
-  el.style.setProperty("--tx",Math.max(12,tx)+"px")
-  el.style.setProperty("--ty",Math.max(12,ty)+"px")
+function stripTaskMeta(taskText) {
+  if(!taskText) return ""
+  const markers = ["\n\nCollaboration:", "\n\nAssigned agent:", "\n\nOther agents:", "\n\nShared workspace:", "\n\nRole:"]
+  const cutPoints = markers.map(marker => taskText.indexOf(marker)).filter(index => index !== -1)
+  if(!cutPoints.length) return taskText.trim()
+  return taskText.slice(0, Math.min(...cutPoints)).trim()
 }
 
 async function refreshScreen(){
@@ -117,9 +112,26 @@ async function refreshScreen(){
   }
 }
 
-$("screen").onload=()=>{
-  imgNat.w=$("screen").naturalWidth||imgNat.w
-  imgNat.h=$("screen").naturalHeight||imgNat.h
+function renderAgentState(data){
+  const taskPanel = $("taskStatusPanel")
+  const displayTask = stripTaskMeta(data.task)
+  $("taskStatusText").textContent=displayTask||"No active task"
+  $("statusCap").textContent=data.status_text||data.status||"Idle"
+  $("actionTop").textContent=sentence(data.step)
+
+  if(taskPanel) {
+    if(displayTask && data.status === 'working') {
+      taskPanel.style.display='flex'
+    } else {
+      taskPanel.style.display='none'
+    }
+  }
+
+  if(data.step?.reasoning) {
+    $("singleReasoningText").textContent=data.step.reasoning
+  } else {
+    $("singleReasoningText").textContent=data.status_text || "Waiting for agent activity..."
+  }
 }
 
 async function updateState(){
@@ -139,27 +151,7 @@ async function updateState(){
     if(!r.ok) throw new Error(`Agent state fetch failed: ${r.status}`)
 
     const d=await r.json()
-
-    // Update task
-    $("taskStatusText").textContent=d.task||"No active task"
-    $("statusCap").textContent=d.status_text||d.status||"Idle"
-    $("actionTop").textContent=sentence(d.step)
-
-    // Show/hide task panel based on whether there's an active task
-    if(taskPanel) {
-      if(d.task && d.status === 'working') {
-        taskPanel.style.display='flex'
-      } else {
-        taskPanel.style.display='none'
-      }
-    }
-
-    // Update single view reasoning panel
-    if(d.step?.reasoning) {
-      $("singleReasoningText").textContent=d.step.reasoning
-    } else {
-      $("singleReasoningText").textContent=d.status_text || "Waiting for agent activity..."
-    }
+    renderAgentState(d)
   } catch(e) {
     console.warn('State update failed:', e.message)
   }
@@ -321,113 +313,68 @@ function updatePromptPlaceholder() {
       `Send task to ${currentAgent}...` : 
       'Select an agent first...'
   } else {
-    input.placeholder = 'Enter task instructions (use @agent-id to target).'
+    input.placeholder = 'Enter task instructions for all agents...'
   }
 }
 
-// Mention System Variables
-let mentionDropdownOpen = false
-let availableAgents = []
-let selectedMentionIndex = -1
+function buildTaskWithContext({task, agentId, agents, workspaceUrl, isResearch, isCollab}) {
+  const orderedAgents = agents.length ? agents : (agentId ? [agentId] : [])
+  const introAgent = orderedAgents[0]
+  const closingAgent = orderedAgents[orderedAgents.length - 1]
+  const otherAgents = orderedAgents.filter(id => id !== agentId)
 
-// Mention System Functions
-async function loadAvailableAgents() {
-  try {
-    const r = await apiFetch("/agents", {cache: "no-store"})
-    availableAgents = await r.json()
-  } catch(e) {
-    console.warn('Failed to load agents for mentions:', e)
-    availableAgents = []
+  let roleNote = "Own a subject: pick a unique subtopic, write one findings paragraph with source credit."
+  if(orderedAgents.length === 1) {
+    roleNote = "Solo: write Instructions/Approach, all findings paragraphs (one per subject with citations), Conclusion, Bibliography, then clean grammar/formatting."
+  } else if(agentId === introAgent && agentId === closingAgent) {
+    roleNote = "Solo: write Instructions/Approach, all findings paragraphs (one per subject with citations), Conclusion, Bibliography, then clean grammar/formatting."
+  } else if(agentId === introAgent) {
+    roleNote = "Lead: write the Instructions/Approach paragraph. If only two agents, also take one findings paragraph."
+  } else if(agentId === closingAgent) {
+    roleNote = "Wrap-up: write the Conclusion paragraph, compile the Bibliography, then do a cleanup pass (grammar, spacing, headings/bold) without changing facts. If only two agents, also take one findings paragraph."
   }
-}
 
-function showMentionDropdown(searchTerm = '', isSuperview = false) {
-  const dropdownId = isSuperview ? "supervisorMentionDropdown" : "mentionDropdown"
-  const dropdown = $(dropdownId)
-  dropdown.innerHTML = ""
-  
-  const filteredAgents = availableAgents.filter(agent => 
-    agent.id.toLowerCase().includes(searchTerm.toLowerCase())
-  )
-  
-  if(filteredAgents.length === 0) {
-    dropdown.classList.remove('open')
-    mentionDropdownOpen = false
-    return
-  }
-  
-  filteredAgents.forEach((agent, index) => {
-    const item = document.createElement("div")
-    item.className = "mentionItem"
-    item.textContent = agent.id
-    item.onclick = () => insertMention(agent.id, isSuperview)
-    if(index === selectedMentionIndex) {
-      item.classList.add('selected')
-    }
-    dropdown.appendChild(item)
-  })
-  
-  // Position the single view dropdown
-  if(!isSuperview) {
-    dropdown.className = "mentionDropdown single-view"
-  }
-  
-  dropdown.classList.add('open')
-  mentionDropdownOpen = true
-  selectedMentionIndex = Math.max(0, Math.min(selectedMentionIndex, filteredAgents.length - 1))
-  updateMentionSelection(isSuperview)
-}
+  const docRules = [
+    "- Document sections: Instructions/Approach (one paragraph), Findings (one paragraph per subject), Conclusion (one paragraph), Bibliography (source list).",
+    "- Findings: each subject is its own section/paragraph with inline source credit (site name).",
+    "- Bibliography entries: 'Source Name - URL', include every cited source."
+  ]
 
-function hideMentionDropdown(isSuperview = false) {
-  const dropdownId = isSuperview ? "supervisorMentionDropdown" : "mentionDropdown"
-  $(dropdownId).classList.remove('open')
-  mentionDropdownOpen = false
-  selectedMentionIndex = -1
-}
+  const lines = [
+    task,
+    "",
+    "Collaboration: " + (isCollab ? "yes" : "no"),
+    "Assigned agent: " + (agentId || "queue"),
+    "Other agents: " + (otherAgents.length ? otherAgents.join(", ") : "none"),
+    "Shared workspace: " + (workspaceUrl || "not provided"),
+    "Role: " + roleNote
+  ]
 
-function updateMentionSelection(isSuperview = false) {
-  const dropdownId = isSuperview ? "supervisorMentionDropdown" : "mentionDropdown"
-  const items = $(dropdownId).querySelectorAll('.mentionItem')
-  items.forEach((item, index) => {
-    item.classList.toggle('selected', index === selectedMentionIndex)
-  })
-}
+  if(isCollab && isResearch) {
+    lines.push(
+      "",
+      "Collab research instructions:",
+      "- Open the shared workspace URL immediately and write findings there.",
+      `- Create a new page or section titled "${agentId}" (bold, left-aligned).`,
+      "- Leave a blank line after the title, then write all your findings under it.",
+      "- Keep each subject in its own paragraph with source credit.",
+      "- Team split: first agent writes Instructions/Approach; middle agents each write one findings paragraph; last agent writes Conclusion + Bibliography + cleanup.",
+      "- Do not edit other agents' sections except the final cleanup agent."
+    )
+  }
 
-function insertMention(agentId, isSuperview = false) {
-  const inputId = isSuperview ? "supervisorTaskInput" : "promptInput"
-  const input = $(inputId)
-  const value = input.value
-  const cursorPos = input.selectionStart
-  
-  // Find the @ symbol position
-  let atPos = cursorPos - 1
-  while(atPos >= 0 && value[atPos] !== '@') {
-    atPos--
+  if(isResearch) {
+    lines.push(
+      "",
+      "Document setup:",
+      workspaceUrl
+        ? "- Open the shared workspace URL before any research. Confirm the caret is in the document body before typing."
+        : "- Create or open a Google Doc before any research. Confirm the caret is in the document body before typing."
+    )
+    lines.push("", "Document rules:", ...docRules)
   }
-  
-  if(atPos >= 0) {
-    const beforeAt = value.substring(0, atPos)
-    const afterCursor = value.substring(cursorPos)
-    const mention = `@${agentId}`
-    
-    input.value = beforeAt + mention + ' ' + afterCursor
-    input.selectionStart = input.selectionEnd = atPos + mention.length + 1
-  }
-  
-  hideMentionDropdown(isSuperview)
-  input.focus()
-}
 
-function extractMentions(text) {
-  const mentionRegex = /@([a-zA-Z0-9-]+)/g
-  const mentions = []
-  let match
-  
-  while((match = mentionRegex.exec(text)) !== null) {
-    mentions.push(match[1])
-  }
-  
-  return mentions
+  return lines.join("\n")
 }
 
 async function sendTask() {
@@ -447,70 +394,99 @@ async function sendTask() {
   let agentId = null
   let cleanTask = task
 
-  if(currentView === 'single') {
-    if(!currentAgent) {
-      showToast('Please select an agent first', 'error')
-      return
-    }
-    agentId = currentAgent
-  } else {
-    const mentions = extractMentions(task)
-    if(mentions.length > 0) {
-      agentId = mentions[0]
-      cleanTask = task.replace(/@[\w-]+/g, '').trim()
-    }
-  }
-
-  // Ensure cleanTask is not empty after removing mentions
-  if(!cleanTask) {
-    showToast('Please enter a task (not just agent mentions)', 'error')
-    return
-  }
-
   try {
-    const response = await apiFetch('/api/send-task', {
+    const workspaceUrl = localStorage.getItem("harmonyWorkspaceUrl") || ""
+    let targetAgents = []
+    let collabAgents = []
+    let isCollab = false
+
+    if(currentView === 'single') {
+      if(!currentAgent) {
+        showToast('Please select an agent first', 'error')
+        return
+      }
+      agentId = currentAgent
+      targetAgents = [agentId]
+      collabAgents = [agentId]
+    } else {
+      const r = await apiFetch("/agents", {cache: "no-store"})
+      if(!r.ok) throw new Error(`Agents fetch failed: ${r.status}`)
+      const agents = await r.json()
+      collabAgents = agents.map(agent => agent.id)
+      if(collabAgents.length === 0) {
+        showToast('No agents connected', 'error')
+        return
+      }
+      targetAgents = collabAgents
+      isCollab = true
+    }
+
+    const payloads = targetAgents.map(targetId => ({
+      task: buildTaskWithContext({
+        task: cleanTask,
+        agentId: targetId,
+        agents: collabAgents.length ? collabAgents : (agentId ? [agentId] : []),
+        workspaceUrl,
+        isResearch: researchModeEnabled,
+        isCollab
+      }),
+      agent_id: targetId,
+      research_mode: researchModeEnabled
+    }))
+    const responses = await Promise.all(payloads.map(body => apiFetch('/api/send-task', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({task: cleanTask, agent_id: agentId, research_mode: researchModeEnabled})
-    })
+      body: JSON.stringify(body)
+    })))
 
     // Always clear input after sending (regardless of success/failure)
     // This provides better UX - user can retype if there was an error
     const originalTask = input.value
     input.value = ''
 
-    if(!response.ok) {
-      let errorMsg = `Server error: ${response.status}`
-      try {
-        const errorData = await response.json()
-        errorMsg = errorData.error || errorMsg
-      } catch(e) {
-        // Response wasn't JSON, use status code
+    const failures = []
+    let successCount = 0
+
+    for(const response of responses) {
+      if(!response.ok) {
+        let errorMsg = `Server error: ${response.status}`
+        try {
+          const errorData = await response.json()
+          errorMsg = errorData.error || errorMsg
+        } catch(e) {
+          // Response wasn't JSON, use status code
+        }
+        failures.push(errorMsg)
+        continue
       }
-      console.error('Task send failed:', response.status, errorMsg)
-      showToast(errorMsg, 'error')
-      // Restore input on error so user can retry
+
+      let result = null
+      try {
+        const responseText = await response.text()
+        result = responseText ? JSON.parse(responseText) : null
+      } catch(e) {
+        console.error('Task send response parse error:', e)
+        failures.push('Unexpected server response')
+        continue
+      }
+
+      if(result && result.success) {
+        successCount += 1
+      } else {
+        failures.push((result && result.error) || 'Failed to send task')
+      }
+    }
+
+    if(failures.length) {
+      showToast(failures[0], 'error')
       input.value = originalTask
       return
     }
 
-    let result = null
-    try {
-      const responseText = await response.text()
-      result = responseText ? JSON.parse(responseText) : null
-    } catch(e) {
-      console.error('Task send response parse error:', e)
-      showToast('Unexpected server response', 'error')
-      input.value = originalTask
-      return
-    }
-
-    if(result && result.success) {
-      showToast(result.message || 'Task sent successfully', 'success')
+    if(successCount > 1) {
+      showToast(`Task sent to ${successCount} agents`, 'success')
     } else {
-      showToast((result && result.error) || 'Failed to send task', 'error')
-      // Restore input on error so user can retry
-      input.value = originalTask
+      showToast('Task sent successfully', 'success')
     }
   } catch(e) {
     console.error('Task send error:', e)
@@ -618,78 +594,11 @@ if(workspaceBtn) {
 $("promptSend").onclick = sendTask
 
 $("promptInput").addEventListener('keydown', e => {
-  if(mentionDropdownOpen) {
-    if(e.key === 'ArrowDown') {
-      e.preventDefault()
-      selectedMentionIndex = Math.min(selectedMentionIndex + 1, document.querySelectorAll('.mentionItem').length - 1)
-      updateMentionSelection()
-    } else if(e.key === 'ArrowUp') {
-      e.preventDefault()
-      selectedMentionIndex = Math.max(selectedMentionIndex - 1, 0)
-      updateMentionSelection()
-    } else if(e.key === 'Enter' || e.key === 'Tab') {
-      e.preventDefault()
-      const items = document.querySelectorAll('.mentionItem')
-      if(items[selectedMentionIndex]) {
-        items[selectedMentionIndex].click()
-      }
-    } else if(e.key === 'Escape') {
-      e.preventDefault()
-      hideMentionDropdown()
-    }
-    return
-  }
-  
   if(e.key === 'Enter') {
     e.preventDefault()
     sendTask()
   }
 })
-
-$("promptInput").addEventListener('input', e => {
-  // Only allow mentions in supervisor view
-  if(currentView !== 'supervisor') return
-  
-  const value = e.target.value
-  const cursorPos = e.target.selectionStart
-  
-  // Check if we just typed @
-  if(value[cursorPos - 1] === '@') {
-    showMentionDropdown('')
-    selectedMentionIndex = 0
-  } else if(mentionDropdownOpen) {
-    // Find the current @ mention being typed
-    let atPos = cursorPos - 1
-    while(atPos >= 0 && value[atPos] !== '@' && value[atPos] !== ' ') {
-      atPos--
-    }
-    
-    if(atPos >= 0 && value[atPos] === '@') {
-      const searchTerm = value.substring(atPos + 1, cursorPos)
-      showMentionDropdown(searchTerm)
-    } else {
-      hideMentionDropdown()
-    }
-  }
-})
-
-$("promptInput").addEventListener('click', e => {
-  if(mentionDropdownOpen) {
-    hideMentionDropdown()
-  }
-})
-
-// Click outside to close mention dropdown
-document.addEventListener('click', e => {
-  if(!e.target.closest('.promptInputSection')) {
-    hideMentionDropdown()
-  }
-})
-
-// Update placeholder when agent changes
-function updateAgentSelection() {
-  updatePromptPlaceholder()
-}
 
 // Add loading states
 function showLoading() {
@@ -704,17 +613,28 @@ function hideLoading() {
 // Enhanced initialization
 let isInitialized = false
 
+function ensureLucideReady(retries = 30) {
+  if (typeof lucide !== 'undefined') {
+    lucide.createIcons()
+    return
+  }
+  if (retries > 0) {
+    setTimeout(() => ensureLucideReady(retries - 1), 100)
+  }
+}
+
 async function initialize() {
   if(isInitialized) return
   
   showLoading()
   
   try {
-    await Promise.all([fetchAgents(), loadAvailableAgents()])
+    await Promise.all([fetchAgents()])
     if(currentAgent) {
       await Promise.all([updateState(), refreshScreen()])
     }
     updatePromptPlaceholder()
+    ensureLucideReady()
     isInitialized = true
     hideLoading()
   } catch(e) {
@@ -880,12 +800,13 @@ async function updateAgentTileContent(agent, tile) {
   }
 
   stepText = truncateText(stepText, 44)
+  const displayTask = stripTaskMeta(agent.task)
 
   tile.innerHTML = `
     <div class="agentTileContent">
       <div class="agentTileHeader">
         <div class="agentTileId">${agent.id || 'Unknown'}</div>
-        <div class="agentTileTask" onclick="event.stopPropagation(); showTaskModal('${agent.id}', \`${(agent.task || 'No active task').replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`)" title="Click to view full task">${agent.task || 'No active task'}</div>
+        <div class="agentTileTask" onclick="event.stopPropagation(); showTaskModal('${agent.id}', \`${(displayTask || 'No active task').replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`)" title="Click to view task">${displayTask || 'No active task'}</div>
       </div>
 
       <div class="agentMiniWindow">
@@ -961,7 +882,7 @@ function closeCustomAlert() {
 }
 
 function showTaskModal(agentId, taskText) {
-  showCustomAlert(`${agentId} - Full Task`, taskText)
+  showCustomAlert(`${agentId} - Task`, taskText)
 }
 
 async function stopAgent(agentId) {
@@ -985,27 +906,35 @@ async function disconnectAgent(agentId) {
       // ignore parse errors, we'll fall back to a generic message
     }
 
+    const finalizeDisconnect = (message, toastType) => {
+      showToast(message, toastType)
+
+      if(currentAgent === agentId) {
+        currentAgent = null
+        updatePromptPlaceholder()
+        updateState()
+        refreshScreen()
+      }
+
+      fetchAgents()
+      if(currentView === 'supervisor') {
+        updateSupervisorGrid()
+      }
+    }
+
     if(!response.ok) {
+      if(response.status === 404) {
+        finalizeDisconnect(`Agent ${agentId} already disconnected`, 'success')
+        return
+      }
       showToast((result && result.error) || 'Server rejected disconnect request', 'error')
       return
     }
 
-    showToast((result && result.message) || `Agent ${agentId} disconnected`, 'success')
-
-    if(currentAgent === agentId) {
-      currentAgent = null
-      updatePromptPlaceholder()
-      updateState()
-      refreshScreen()
-    }
-
-    fetchAgents()
-    if(currentView === 'supervisor') {
-      updateSupervisorGrid()
-    }
+    finalizeDisconnect((result && result.message) || `Agent ${agentId} disconnected`, 'success')
   } catch(e) {
     console.error('Disconnect failed:', e)
-    showToast('Disconnect failed - server unreachable', 'error')
+    showConnectionOverlay()
   }
 }
 
@@ -1042,6 +971,9 @@ let lastToastMessage = null
 let lastToastAt = 0
 
 function showToast(message, type = 'info') {
+  if(type === 'error') {
+    return
+  }
   const now = Date.now()
   const isRepeat = message === lastToastMessage && (now - lastToastAt) < 2000
   lastToastMessage = message
@@ -1199,6 +1131,7 @@ function updateSupervisorStats(agents) {
 
 // Initialize and start polling
 initialize()
+window.addEventListener('load', ensureLucideReady)
 scheduleUpdate(() => Promise.all([fetchAgents(), loadAvailableAgents()]), 2000)
 scheduleUpdate(updateState, 300)
 scheduleUpdate(() => currentAgent && refreshScreen(), 500)

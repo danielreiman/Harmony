@@ -13,7 +13,7 @@ def broadcast():
 
     while True:
         try:
-            sock.sendto(b"HARMONY_SERVER", ("255.255.255.255", 3030))
+            sock.sendto(b"HARMONY_SERVER", ("255.255.255.255", BROADCAST_PORT))
         except OSError:
             pass
         time.sleep(1)
@@ -53,7 +53,7 @@ def send(obj, conn):
 
 def recv(conn):
     try:
-        conn.settimeout(120.0)
+        conn.settimeout(TIMEOUT)
         size_bytes = _recv_exact(conn, 8)
         if not size_bytes:
             return None
@@ -76,7 +76,7 @@ def recv(conn):
 
 def recv_file(path, conn):
     try:
-        conn.settimeout(120.0)
+        conn.settimeout(TIMEOUT)
 
         size_bytes = _recv_exact(conn, 8)
         if not size_bytes:
