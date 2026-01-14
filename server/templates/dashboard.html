@@ -103,8 +103,8 @@
         </div>
       </div>
 
-      <!-- Task Status Panel -->
-      <div class="taskStatusPanel" id="taskStatusPanel">
+      <!-- Task Status Panel (hidden by default, shown when task is active) -->
+      <div class="taskStatusPanel" id="taskStatusPanel" style="display:none;">
         <div class="taskStatusContent">
           <div class="taskStatusLabel">Current Task</div>
           <div class="taskStatusText" id="taskStatusText">No active task</div>
@@ -124,16 +124,6 @@
 <!-- Supervisor View -->
 <div id="supervisorView" class="supervisorView">
 
-  <div class="agentsSectionHeader">
-    <div class="agentsSectionTitle">Your Agents</div>
-    <div class="agentsSectionStats" id="supervisorStats">
-      <span id="totalAgents">0</span> Total
-      <span class="statDot"></span>
-      <span id="activeAgents">0</span> Active
-      <span class="statDot"></span>
-      <span id="idleAgents">0</span> Idle
-    </div>
-  </div>
 
   <div class="agentsGrid" id="supervisorGrid">
     <!-- Agent tiles will be populated here -->
@@ -189,22 +179,51 @@
 
 <!-- Floating Actions -->
 <div class="floatingActions">
-  <button class="actionButton primary" title="View Results" id="viewResultsBtn">
-    View Results
+  <button class="workspaceButton" id="workspaceBtn" title="Workspace">
+    Workspace
   </button>
+  <div class="workspaceToast" id="workspaceToast">
+    <div class="workspaceToastHeader">
+      <div class="workspaceToastTitle">
+        <i data-lucide="link"></i>
+        Shared Workspace
+      </div>
+      <button class="workspaceToastClose" onclick="closeWorkspaceToast()" aria-label="Close workspace panel">✕</button>
+    </div>
+    <div class="workspaceToastBody">
+      <p>Share a doc or board URL so agents can collaborate in one place.</p>
+      <div class="workspaceToastField">
+        <input type="text" class="workspaceToastInput" id="workspaceUrlInput" placeholder="Paste shared URL (Notion, Google Doc, etc.)">
+      </div>
+    </div>
+    <div class="workspaceToastActions">
+      <button class="workspaceToastSave" onclick="saveWorkspaceUrl()">Save</button>
+    </div>
+  </div>
 </div>
 
 <!-- Prompt Section -->
 <div class="promptSection" id="promptSection">
-  <div class="mentionDropdown" id="mentionDropdown"></div>
-  <div class="promptInputWrapper">
-    <input type="text" class="promptInput" id="promptInput" placeholder="Enter task instructions...">
-    <button class="researchToggle" id="researchToggle" onclick="toggleResearchMode()" title="Toggle research mode">
-      <i data-lucide="telescope"></i>
-      <span class="researchToggleText">Research</span>
-    </button>
+  <div class="promptMeta" id="promptMeta" style="display:none;">
+    <div class="promptStats" id="promptStats">
+      <span id="totalAgents">0</span> Total
+      <span class="statDot"></span>
+      <span id="activeAgents">0</span> Active
+      <span class="statDot"></span>
+      <span id="idleAgents">0</span> Idle
+    </div>
   </div>
-  <button class="promptSend primary" id="promptSend">Send</button>
+  <div class="promptRow">
+    <div class="mentionDropdown" id="mentionDropdown"></div>
+    <div class="promptInputWrapper">
+      <input type="text" class="promptInput" id="promptInput" placeholder="Enter task instructions...">
+      <button class="researchToggle" id="researchToggle" onclick="toggleResearchMode()" title="Toggle research mode">
+        <i data-lucide="telescope"></i>
+        <span class="researchToggleText">Research</span>
+      </button>
+    </div>
+    <button class="promptSend primary" id="promptSend">Send</button>
+  </div>
 </div>
 
 <!-- Results Modal -->
