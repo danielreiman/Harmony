@@ -1,5 +1,8 @@
-from flask import Flask, send_file, jsonify, make_response, request, render_template
-import os, json, signal, shutil
+import json
+import os
+import signal
+import shutil
+from flask import Flask, jsonify, make_response, render_template, request, send_file
 
 RUNTIME_DIR = "./runtime"
 app = Flask(__name__)
@@ -8,6 +11,7 @@ app = Flask(__name__)
 _agents = None
 _agents_lock = None
 _tasks = None
+
 
 def init_dashboard(agents, agents_lock, tasks):
     global _agents, _agents_lock, _tasks
@@ -41,33 +45,39 @@ def icon():
 
 @app.route("/agents")
 def agents():
-    out=[]
+    out = []
     if os.path.exists(RUNTIME_DIR):
         for f in os.listdir(RUNTIME_DIR):
             if f.endswith(".soul"):
                 try:
-                    with open(os.path.join(RUNTIME_DIR,f)) as jf:
-                        d=json.load(jf)
-                    if d.get("id"): out.append({"id":d["id"]})
-                except: pass
-    return jsonify(sorted(out,key=lambda x:x["id"]))
+                    with open(os.path.join(RUNTIME_DIR, f)) as jf:
+                        data = json.load(jf)
+                    if data.get("id"):
+                        out.append({"id": data["id"]})
+                except Exception:
+                    pass
+    return jsonify(sorted(out, key=lambda x: x["id"]))
 
 
 @app.route("/agent/<agent_id>")
 def agent_state(agent_id):
-    p=os.path.join(RUNTIME_DIR,f"{agent_id}.soul")
-    if not os.path.exists(p): return jsonify({})
+    path = os.path.join(RUNTIME_DIR, f"{agent_id}.soul")
+    if not os.path.exists(path):
+        return jsonify({})
     try:
-        with open(p) as f: return jsonify(json.load(f))
-    except: return jsonify({})
+        with open(path) as f:
+            return jsonify(json.load(f))
+    except Exception:
+        return jsonify({})
 
 
 @app.route("/screen/<agent_id>")
 def screen_file(agent_id):
-    p=os.path.join(RUNTIME_DIR,f"screenshot_{agent_id}.png")
-    if not os.path.exists(p): return "No screenshot",404
-    resp=make_response(send_file(p,mimetype="image/png"))
-    resp.headers["Cache-Control"]="no-store"
+    path = os.path.join(RUNTIME_DIR, f"screenshot_{agent_id}.png")
+    if not os.path.exists(path):
+        return "No screenshot", 404
+    resp = make_response(send_file(path, mimetype="image/png"))
+    resp.headers["Cache-Control"] = "no-store"
     return resp
 
 
@@ -92,16 +102,16 @@ def send_task():
             if not agent:
                 return jsonify({"success": False, "error": f"Agent {agent_id} not found"}), 404
             if agent.status == "idle":
-                agent.assign(task, research_mode=research_mode)
                 mode_text = " (research mode)" if research_mode else ""
+                agent.assign(task, research_mode=research_mode)
                 return jsonify({"success": True, "message": f"Task assigned to {agent_id}{mode_text}"})
-            else:
-                agent.history.append({"role": "user", "content": task})
-                return jsonify({"success": True, "message": f"Message sent to {agent_id}"})
-        else:
-            # For queue, we can store a tuple with research_mode info
-            _tasks.append({"task": task, "research_mode": research_mode} if research_mode else task)
-            return jsonify({"success": True, "message": "Task added to queue"})
+
+            agent.history.append({"role": "user", "content": task})
+            return jsonify({"success": True, "message": f"Message sent to {agent_id}"})
+
+        queued_task = {"task": task, "research_mode": research_mode} if research_mode else task
+        _tasks.append(queued_task)
+        return jsonify({"success": True, "message": "Task added to queue"})
 
 
 @app.route("/api/agent/<agent_id>/stop", methods=["POST", "OPTIONS"])
@@ -122,8 +132,8 @@ def stop_agent(agent_id):
             agent.status_msg = "Stopped"
             agent.save()
             return jsonify({"success": True, "message": f"Agent {agent_id} stopped"})
-        else:
-            return jsonify({"success": False, "error": f"Agent {agent_id} is not working"}), 400
+
+        return jsonify({"success": False, "error": f"Agent {agent_id} is not working"}), 400
 
 
 @app.route("/api/agent/<agent_id>/disconnect", methods=["POST", "OPTIONS"])
@@ -133,10 +143,23 @@ def disconnect_agent(agent_id):
     if _agents is None:
         return jsonify({"success": False, "error": "Dashboard not connected to server"}), 503
 
+    def cleanup_agent_files():
+        try:
+            for fname in (
+                f"{agent_id}.soul",
+                f"screenshot_{agent_id}.png",
+            ):
+                fpath = os.path.join(RUNTIME_DIR, fname)
+                if os.path.exists(fpath):
+                    os.remove(fpath)
+        except Exception:
+            pass
+
     with _agents_lock:
         agent = _agents.get(agent_id)
         if not agent:
-            return jsonify({"success": False, "error": f"Agent {agent_id} not found"}), 404
+            cleanup_agent_files()
+            return jsonify({"success": True, "message": f"Agent {agent_id} already disconnected"})
 
         agent.status = "disconnected"
         try:
@@ -145,19 +168,10 @@ def disconnect_agent(agent_id):
             pass
 
         # Clean up agent files
-        try:
-            soul_path = os.path.join(RUNTIME_DIR, f"{agent_id}.soul")
-            screen_path = os.path.join(RUNTIME_DIR, f"screenshot_{agent_id}.png")
-            if os.path.exists(soul_path):
-                os.remove(soul_path)
-            if os.path.exists(screen_path):
-                os.remove(screen_path)
-        except:
-            pass
+        cleanup_agent_files()
 
         # Remove from agents dict
-        if agent_id in _agents:
-            del _agents[agent_id]
+        _agents.pop(agent_id, None)
 
         return jsonify({"success": True, "message": f"Agent {agent_id} removed"})
 
@@ -191,6 +205,6 @@ def run_dashboard(host="0.0.0.0", port=1234):
         app.run(host=host, port=port, debug=False, threaded=True)
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
     os.makedirs(RUNTIME_DIR, exist_ok=True)
     run_dashboard()

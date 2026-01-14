@@ -29,6 +29,8 @@ class Agent:
         self.phase = None
         self.phase_count = 0
         self.step = {}
+        self.last_click = None
+        self.last_action = None
 
         # AI conversation
         self.history = []
@@ -78,7 +80,7 @@ class Agent:
         # Select prompt based on mode
         if research_mode:
             prompt = RESEARCH_PROMPT
-            user_msg = f"Research this topic and document findings with proper structure (Introduction, Body, Conclusion, Bibliography): {task}"
+            user_msg = f"Research this topic and document findings with proper structure: {task}"
         else:
             prompt = TASK_PROMPT
             user_msg = f"Execute this task directly (no research needed): {task}"
@@ -149,6 +151,8 @@ class Agent:
 
                 parsed = json.loads(raw[start:end])
                 parsed["raw"] = raw
+
+                print(f"[Agent {self.id}] AI response: {raw}")
 
                 if self.history and "images" in self.history[-1]:
                     self.history[-1].pop("images", None)
@@ -228,14 +232,6 @@ class Agent:
 
         success = result.get("success", False)
         self.step["success"] = success
-
-        if not success:
-            action = self.step.get("action", "unknown")
-            print(f"[Agent {self.id}] Failed: {action}")
-            self.history.append({
-                "role": "user",
-                "content": "Action failed. Tips: 1) Click text field BEFORE typing 2) Use correct coordinates 3) Maximize windows. Try again."
-            })
 
         self.save()
         return True
