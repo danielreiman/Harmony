@@ -692,6 +692,7 @@ body{
 /* ================= TASK STATUS PANEL ================= */
 
 /* Position is set in .stage section above */
+/* display is controlled by JavaScript - hidden by default, shown when task is active */
 .taskStatusPanel{
   background:rgba(255,255,255,0.98);
   backdrop-filter:blur(16px);
@@ -699,7 +700,6 @@ body{
   border-radius:16px;
   box-shadow:var(--shadow);
   padding:20px;
-  display:flex;
   flex-direction:column;
   gap:16px;
   z-index:20;
@@ -766,12 +766,155 @@ body{
 
 .floatingActions{
   position:fixed;
-  bottom:40px;
+  bottom:32px;
   right:40px;
   display:flex;
   flex-direction:row;
   gap:16px;
+  align-items:flex-end;
   z-index:50;
+}
+
+.workspaceButton{
+  height:68px;
+  padding:0 36px;
+  border-radius:34px;
+  border:none;
+  background:linear-gradient(135deg, var(--accent) 0%, #7a5f3f 100%);
+  color:white;
+  box-shadow:0 8px 24px rgba(139,111,71,0.3), 0 2px 8px rgba(139,111,71,0.2);
+  cursor:pointer;
+  font-size:15px;
+  font-weight:600;
+  letter-spacing:0.005em;
+  transition:all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.workspaceButton:hover{
+  background:linear-gradient(135deg, #7a5f3f 0%, #6b5537 100%);
+  box-shadow:0 12px 32px rgba(139,111,71,0.4), 0 4px 12px rgba(139,111,71,0.25);
+  transform:translateY(-2px);
+}
+
+.workspaceButton.active{
+  box-shadow:0 16px 36px rgba(139,111,71,0.45), 0 6px 16px rgba(139,111,71,0.25);
+}
+
+.workspaceToast{
+  position:absolute;
+  right:0;
+  bottom:82px;
+  width:360px;
+  background:rgba(255,255,255,0.98);
+  border:2px solid var(--border);
+  border-radius:20px;
+  box-shadow:0 18px 60px rgba(0,0,0,0.18), 0 4px 16px rgba(0,0,0,0.08);
+  padding:18px;
+  display:none;
+  flex-direction:column;
+  gap:14px;
+  z-index:60;
+  backdrop-filter:blur(18px);
+}
+
+.workspaceToast.open{
+  display:flex;
+  animation:dropdownFadeIn 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.workspaceToastHeader{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+
+.workspaceToastTitle{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  font-size:14px;
+  font-weight:700;
+  color:var(--text);
+}
+
+.workspaceToastTitle i{
+  width:16px;
+  height:16px;
+  color:var(--accent);
+}
+
+.workspaceToastClose{
+  width:28px;
+  height:28px;
+  border-radius:50%;
+  border:1px solid var(--border);
+  background:transparent;
+  color:var(--muted);
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  transition:all 0.2s ease;
+}
+
+.workspaceToastClose:hover{
+  border-color:var(--accent);
+  color:var(--accent);
+}
+
+.workspaceToastBody p{
+  margin:0;
+  font-size:13px;
+  color:var(--muted);
+  line-height:1.5;
+}
+
+.workspaceToastField{
+  display:flex;
+  align-items:center;
+  padding:10px 6px;
+}
+
+.workspaceToastInput{
+  width:100%;
+  height:40px;
+  padding:0 14px;
+  border-radius:12px;
+  border:1px solid var(--border);
+  background:white;
+  font-size:13px;
+  color:var(--text);
+  outline:none;
+  transition:all 0.2s ease;
+}
+
+.workspaceToastInput:focus{
+  border-color:var(--accent);
+  box-shadow:0 0 0 3px rgba(139,111,71,0.12);
+}
+
+.workspaceToastActions{
+  display:flex;
+  justify-content:flex-end;
+}
+
+.workspaceToastSave{
+  height:36px;
+  padding:0 18px;
+  border-radius:18px;
+  border:none;
+  background:linear-gradient(135deg, var(--accent) 0%, #7a5f3f 100%);
+  color:white;
+  font-size:12px;
+  font-weight:700;
+  cursor:pointer;
+  transition:all 0.2s ease;
+}
+
+.workspaceToastSave:hover{
+  background:linear-gradient(135deg, #7a5f3f 0%, #6b5537 100%);
+  transform:translateY(-1px);
 }
 
 .actionButton{
@@ -1035,7 +1178,7 @@ body{
 
 .viewModeToggle{
   position:fixed;
-  bottom:40px;
+  bottom:32px;
   left:40px;
   height:68px;
   display:flex;
@@ -1118,11 +1261,12 @@ body{
 
 .supervisorView{
   display:none;
-  padding:100px 0 160px;
-  height:100vh;
-  background:linear-gradient(135deg, var(--bg) 0%, #f0ebe0 100%);
+  padding-top:80px;
+  padding-bottom:140px;
+  min-height:100vh;
+  background:var(--bg);
   flex-direction:column;
-  justify-content:center;
+  justify-content:flex-start;
   align-items:flex-start;
   overflow-y:auto;
   overflow-x:hidden;
@@ -1130,44 +1274,6 @@ body{
 
 .supervisorView.active{
   display:flex;
-}
-
-.agentsSectionHeader{
-  display:flex;
-  flex-direction:column;
-  gap:6px;
-  padding:0 40px;
-  margin-bottom:12px;
-  width:100%;
-  flex-shrink:0;
-}
-
-.agentsSectionTitle{
-  font-size:18px;
-  font-weight:700;
-  color:var(--text);
-  letter-spacing:-0.02em;
-}
-
-.agentsSectionStats{
-  font-size:13px;
-  font-weight:500;
-  color:var(--muted);
-  display:flex;
-  align-items:center;
-  gap:8px;
-}
-
-.agentsSectionStats span:not(.statDot){
-  font-weight:700;
-  color:var(--accent);
-}
-
-.statDot{
-  width:4px;
-  height:4px;
-  background:var(--border);
-  border-radius:50%;
 }
 
 
@@ -1530,7 +1636,7 @@ body{
 .agentsGrid{
   display:flex;
   gap:32px;
-  padding:0 40px;
+  padding:24px 40px 0;
   overflow-x:auto;
   overflow-y:visible;
   align-items:flex-start;
@@ -1546,7 +1652,7 @@ body{
 }
 
 .agentsGrid::-webkit-scrollbar-track{
-  background:rgba(255,255,255,0.3);
+  background:var(--soft);
   border-radius:4px;
 }
 
@@ -1619,7 +1725,7 @@ body{
 
 .agentMiniTop{
   height:32px;
-  background:linear-gradient(135deg, #f8f5f1 0%, #f0ebe0 100%);
+  background:linear-gradient(135deg, var(--panel) 0%, var(--soft) 100%);
   border-bottom:1px solid var(--soft);
   display:flex;
   align-items:center;
@@ -2224,16 +2330,93 @@ body{
 
 .promptSection{
   position:fixed;
-  bottom:40px;
+  bottom:32px;
   left:50%;
   transform:translateX(-50%);
   z-index:40;
   display:flex;
-  gap:10px;
+  flex-direction:column;
   align-items:center;
-  width:760px;
-  max-width:calc(100vw - 80px);
+  gap:12px;
+  width:720px;
+  max-width:calc(100vw - 200px);
   transition:var(--transition);
+}
+
+.promptMeta{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:8px;
+  width:100%;
+}
+
+.promptStats{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:12px;
+  font-size:12px;
+  font-weight:500;
+  color:var(--muted);
+}
+
+.promptStats span:not(.statDot){
+  font-weight:600;
+  color:var(--text);
+}
+
+.promptStats .statDot{
+  width:3px;
+  height:3px;
+  background:var(--muted);
+  border-radius:50%;
+  opacity:0.4;
+}
+
+.workspaceUrl{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  width:100%;
+  max-width:400px;
+}
+
+.workspaceUrl i{
+  width:14px;
+  height:14px;
+  color:var(--muted);
+  flex-shrink:0;
+}
+
+.workspaceInput{
+  flex:1;
+  height:32px;
+  padding:0 12px;
+  border-radius:8px;
+  border:1px solid var(--border);
+  background:rgba(255,255,255,0.9);
+  font-size:12px;
+  color:var(--text);
+  outline:none;
+  transition:all 0.2s ease;
+}
+
+.workspaceInput:focus{
+  border-color:var(--accent);
+  background:white;
+}
+
+.workspaceInput::placeholder{
+  color:var(--muted);
+  opacity:0.6;
+}
+
+.promptRow{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  width:100%;
 }
 
 .promptInput{
@@ -2280,11 +2463,12 @@ body{
   display:flex;
   align-items:center;
   flex:1;
+  min-width:0;
 }
 
 .promptInputWrapper .promptInput{
   width:100%;
-  padding-right:110px;
+  padding-right:150px;
 }
 
 .researchToggle{
@@ -2302,6 +2486,7 @@ body{
   align-items:center;
   justify-content:center;
   gap:6px;
+  min-width:44px;
 }
 
 .researchToggle:hover{
@@ -2310,7 +2495,7 @@ body{
 }
 
 .researchToggle.active{
-  background:rgba(139,111,71,0.15);
+  background:rgba(139,111,71,0.12);
   color:var(--accent);
 }
 
@@ -2320,13 +2505,18 @@ body{
 }
 
 .researchToggleText{
-  display:none;
+  display:inline;
   font-size:12px;
   font-weight:600;
+  max-width:0;
+  overflow:hidden;
+  opacity:0;
+  transition:all 0.2s ease;
 }
 
 .researchToggle.active .researchToggleText{
-  display:inline;
+  max-width:72px;
+  opacity:1;
 }
 
 .fullscreenBtn{
@@ -2399,8 +2589,8 @@ body{
   width:680px;
   background:var(--panel);
   border:1px solid var(--border);
-  border-radius:16px;
-  box-shadow:0 12px 40px rgba(0,0,0,0.15);
+  border-radius:12px;
+  box-shadow:0 8px 24px rgba(0,0,0,0.12);
   display:none;
   overflow:hidden;
   z-index:1000;
@@ -2413,15 +2603,14 @@ body{
 }
 
 .mentionItem{
-  padding:14px 20px;
-  font-size:15px;
+  padding:10px 14px;
+  font-size:13px;
   font-family:ui-monospace, "SF Mono", Monaco, monospace;
   cursor:pointer;
-  transition:var(--transition);
+  transition:all 0.15s ease;
   border-bottom:1px solid var(--soft);
   display:flex;
   align-items:center;
-  gap:14px;
 }
 
 .mentionItem:last-child{
@@ -2429,28 +2618,12 @@ body{
 }
 
 .mentionItem:hover{
-  background:var(--soft);
-  color:var(--accent);
+  background:rgba(139,111,71,0.08);
 }
 
 .mentionItem.selected{
-  background:var(--accent);
-  color:white;
-}
-
-.mentionItem::before{
-  content:'';
-  width:6px;
-  height:6px;
-  border-radius:50%;
-  background:var(--accent);
-  opacity:0.6;
-  flex-shrink:0;
-}
-
-.mentionItem.selected::before{
-  background:white;
-  opacity:1;
+  background:rgba(139,111,71,0.12);
+  color:var(--accent);
 }
 
 

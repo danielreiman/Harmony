@@ -36,7 +36,6 @@ function placeBubble(vp,el,x,y){
 async function refreshScreen(){
   const browserFrame = document.querySelector('.browserFrame')
   const browserTop = document.querySelector('.browserTop')
-  const taskPanel = $("taskStatusPanel")
   const statusCap = $("statusCap")
 
   function showWaiting() {
@@ -47,8 +46,7 @@ async function refreshScreen(){
     browserFrame.classList.add('waiting')
     browserTop.style.display='none'
     statusCap.style.display='none'
-    // Keep task panel visible
-    if(taskPanel) taskPanel.style.display='flex'
+    // Task panel visibility is controlled by updateState()
   }
 
   if(!currentAgent) {
@@ -72,7 +70,7 @@ async function refreshScreen(){
     browserFrame.classList.remove('waiting')
     browserTop.style.display='flex'
     statusCap.style.display='block'
-    if(taskPanel) taskPanel.style.display='flex'
+    // Task panel visibility is controlled by updateState()
   } catch(e) {
     console.warn('Screen refresh failed:', e.message)
     showWaiting()
@@ -85,11 +83,14 @@ $("screen").onload=()=>{
 }
 
 async function updateState(){
+  const taskPanel = $("taskStatusPanel")
+
   if(!currentAgent) {
     $("taskStatusText").textContent="No active task"
     $("statusCap").textContent="Idle"
     $("actionTop").textContent="Select an agent..."
     $("singleReasoningText").textContent="Waiting for agent activity..."
+    if(taskPanel) taskPanel.style.display='none'
     return
   }
 
@@ -103,6 +104,15 @@ async function updateState(){
     $("taskStatusText").textContent=d.task||"No active task"
     $("statusCap").textContent=d.status_text||d.status||"Idle"
     $("actionTop").textContent=sentence(d.step)
+
+    // Show/hide task panel based on whether there's an active task
+    if(taskPanel) {
+      if(d.task && d.status === 'working') {
+        taskPanel.style.display='flex'
+      } else {
+        taskPanel.style.display='none'
+      }
+    }
 
     // Update single view reasoning panel
     if(d.step?.reasoning) {
@@ -241,20 +251,27 @@ function switchView(viewName) {
   })
 
   // Show/hide views and agent dropdown
+  const promptMeta = $("promptMeta")
+
   if(viewName === 'single') {
     $("singleView").classList.add('active')
     $("supervisorView").classList.remove('active')
     $("agentDropdown").style.display = 'flex'
+    if(promptMeta) promptMeta.style.display = 'none'
     currentView = 'single'
     updatePromptPlaceholder()
   } else {
     $("singleView").classList.remove('active')
     $("supervisorView").classList.add('active')
     $("agentDropdown").style.display = 'none'
+    if(promptMeta) promptMeta.style.display = 'flex'
     currentView = 'supervisor'
     updateSupervisorGrid()
     updatePromptPlaceholder()
   }
+
+  // Reinitialize icons
+  if(typeof lucide !== 'undefined') lucide.createIcons()
 }
 
 function updatePromptPlaceholder() {
@@ -264,7 +281,7 @@ function updatePromptPlaceholder() {
       `Send task to ${currentAgent}...` : 
       'Select an agent first...'
   } else {
-    input.placeholder = 'Enter task instructions. Use @agent-id for specific assignments...'
+    input.placeholder = 'Enter task instructions (use @agent-id to target).'
   }
 }
 
@@ -375,6 +392,11 @@ function extractMentions(text) {
 
 async function sendTask() {
   const input = $("promptInput")
+  if(!input) {
+    console.error('Prompt input element not found')
+    return
+  }
+
   const task = input.value.trim()
 
   if(!task) {
@@ -399,24 +421,46 @@ async function sendTask() {
     }
   }
 
+  // Ensure cleanTask is not empty after removing mentions
+  if(!cleanTask) {
+    showToast('Please enter a task (not just agent mentions)', 'error')
+    return
+  }
+
   try {
     const response = await fetch('/api/send-task', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({task: cleanTask, agent_id: agentId, research_mode: researchModeEnabled})
     })
+
+    // Always clear input after sending (regardless of success/failure)
+    // This provides better UX - user can retype if there was an error
+    const originalTask = input.value
+    input.value = ''
+
     if(!response.ok) {
-      const errorText = await response.text()
-      console.error('Task send failed:', response.status, errorText)
-      showToast(`Server error: ${response.status}`, 'error')
+      let errorMsg = `Server error: ${response.status}`
+      try {
+        const errorData = await response.json()
+        errorMsg = errorData.error || errorMsg
+      } catch(e) {
+        // Response wasn't JSON, use status code
+      }
+      console.error('Task send failed:', response.status, errorMsg)
+      showToast(errorMsg, 'error')
+      // Restore input on error so user can retry
+      input.value = originalTask
       return
     }
+
     const result = await response.json()
     if(result.success) {
-      showToast(result.message, 'success')
-      input.value = ''
+      showToast(result.message || 'Task sent successfully', 'success')
     } else {
       showToast(result.error || 'Failed to send task', 'error')
+      // Restore input on error so user can retry
+      input.value = originalTask
     }
   } catch(e) {
     console.error('Task send error:', e)
@@ -432,19 +476,45 @@ document.addEventListener("keydown", e => {
   }
 })
 
-// View Results functionality
-$("viewResultsBtn").onclick = () => {
-  openResultsModal()
-}
-
-function openResultsModal() {
-  const modal = $("resultsModal")
-  modal.classList.add('open')
-}
-
 function closeResultsModal() {
   const modal = $("resultsModal")
   modal.classList.remove('open')
+}
+
+// Workspace popover
+function openWorkspaceToast() {
+  const toast = $("workspaceToast")
+  const btn = $("workspaceBtn")
+  if(!toast || !btn) return
+  toast.classList.add("open")
+  btn.classList.add("active")
+  const input = $("workspaceUrlInput")
+  if(input) {
+    input.value = localStorage.getItem("harmonyWorkspaceUrl") || ""
+    input.focus()
+  }
+}
+
+function closeWorkspaceToast() {
+  const toast = $("workspaceToast")
+  const btn = $("workspaceBtn")
+  if(!toast || !btn) return
+  toast.classList.remove("open")
+  btn.classList.remove("active")
+}
+
+function saveWorkspaceUrl() {
+  const input = $("workspaceUrlInput")
+  if(!input) return
+  const url = input.value.trim()
+  if(url) {
+    localStorage.setItem("harmonyWorkspaceUrl", url)
+    showToast("Workspace URL saved", "success")
+  } else {
+    localStorage.removeItem("harmonyWorkspaceUrl")
+    showToast("Workspace URL cleared", "info")
+  }
+  closeWorkspaceToast()
 }
 
 // Close modal when clicking outside or pressing Escape
@@ -457,6 +527,9 @@ document.addEventListener('click', e => {
   }
   if(e.target.id === 'customAlert') {
     closeCustomAlert()
+  }
+  if(!e.target.closest('.workspaceToast') && !e.target.closest('#workspaceBtn')) {
+    closeWorkspaceToast()
   }
 })
 
@@ -471,8 +544,25 @@ document.addEventListener('keydown', e => {
     if($("customAlert").classList.contains('open')) {
       closeCustomAlert()
     }
+    if($("workspaceToast").classList.contains('open')) {
+      closeWorkspaceToast()
+    }
   }
 })
+
+const workspaceBtn = $("workspaceBtn")
+if(workspaceBtn) {
+  workspaceBtn.addEventListener("click", (e) => {
+    e.stopPropagation()
+    const toast = $("workspaceToast")
+    if(!toast) return
+    if(toast.classList.contains("open")) {
+      closeWorkspaceToast()
+    } else {
+      openWorkspaceToast()
+    }
+  })
+}
 
 // Prompt functionality
 $("promptSend").onclick = sendTask
@@ -773,6 +863,12 @@ async function updateAgentTileContent(agent, tile) {
 
 function createTileControls(agent) {
   const hasThought = agent.step?.reasoning
+  const hasTask = agent.task && agent.status === 'working'
+
+  // Only show control buttons when agent has an active task
+  if(!hasTask) {
+    return ''
+  }
 
   return `
     <div class="tileControlsRow">
@@ -889,10 +985,12 @@ function showGoodbye() {
   const titleEl = overlay.querySelector('.connectionOverlayTitle')
   const subtitleEl = overlay.querySelector('.connectionOverlaySubtitle')
   const bodyEl = overlay.querySelector('.connectionOverlayBody')
+  const actionsEl = overlay.querySelector('.connectionActions')
 
   titleEl.textContent = 'See you next time!'
-  subtitleEl.innerHTML = 'Harmony server has been shut down<div class="goodbyeActions"><button class="goodbyeBtn" onclick="location.reload()"><i data-lucide="refresh-cw"></i>Reconnect</button></div><div style="margin-top:32px;color:rgba(255,255,255,0.6);font-size:13px;">To restart: <code style="background:rgba(255,255,255,0.1);padding:4px 8px;border-radius:4px;">python server/server.py</code></div>'
+  subtitleEl.innerHTML = 'Harmony server has been shut down<div class="goodbyeActions"><button class="goodbyeBtn" onclick="location.reload()"><i data-lucide="refresh-cw"></i>Reconnect</button><a href="https://github.com/danielreiman/Harmony" target="_blank" class="goodbyeBtn"><svg viewBox="0 0 16 16" style="width:18px;height:18px;fill:currentColor;"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>View on GitHub</a></div><div style="margin-top:32px;color:rgba(255,255,255,0.6);font-size:13px;">To restart: <code style="background:rgba(255,255,255,0.1);padding:4px 8px;border-radius:4px;">python server/server.py</code></div>'
   bodyEl.style.display = 'none'
+  if(actionsEl) actionsEl.style.display = 'none'
 
   overlay.classList.remove('error')
   overlay.classList.add('active', 'goodbye')
