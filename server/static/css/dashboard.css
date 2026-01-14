@@ -48,7 +48,7 @@ body{
   justify-self:end;
   display:flex;
   align-items:center;
-  gap:12px;
+  gap:10px;
 }
 
 .brandTitle{
@@ -266,15 +266,14 @@ body{
 }
 
 .stopServerBtn{
-  width:auto;
+  width:68px;
   height:68px;
-  border-radius:999px;
-  padding:0 22px;
-  gap:10px;
+  border-radius:50%;
+  padding:0;
+  gap:0;
   font-size:13px;
   font-weight:600;
   letter-spacing:0.02em;
-  margin-right:6px;
 }
 
 .stopServerBtn i{
