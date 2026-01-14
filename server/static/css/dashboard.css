@@ -265,6 +265,23 @@ body{
   color:#dc2626;
 }
 
+.stopServerBtn{
+  width:auto;
+  height:68px;
+  border-radius:999px;
+  padding:0 22px;
+  gap:10px;
+  font-size:13px;
+  font-weight:600;
+  letter-spacing:0.02em;
+  margin-right:6px;
+}
+
+.stopServerBtn i{
+  width:18px;
+  height:18px;
+}
+
 .stopAgentBtn:hover{
   border-color:#fcd34d;
   background:rgba(252,211,77,0.1);
@@ -647,8 +664,13 @@ body{
 }
 
 .tileControlBtn.danger:hover{
-  background:#dc2626;
-  border-color:#dc2626;
+  background:#fef2f2;
+  border-color:#fca5a5;
+  color:#b91c1c;
+}
+
+.tileControlBtn.danger{
+  border-radius:20px;
 }
 
 .tileControlBtn i{
@@ -2556,51 +2578,6 @@ body{
   box-shadow:0 4px 16px rgba(139,111,71,0.3);
 }
 
-.mentionDropdown{
-  position:fixed;
-  bottom:120px;
-  left:calc(50% - 340px);
-  width:680px;
-  background:var(--panel);
-  border:1px solid var(--border);
-  border-radius:12px;
-  box-shadow:0 8px 24px rgba(0,0,0,0.12);
-  display:none;
-  overflow:hidden;
-  z-index:1000;
-  max-height:200px;
-  overflow-y:auto;
-}
-
-.mentionDropdown.open{
-  display:block;
-}
-
-.mentionItem{
-  padding:10px 14px;
-  font-size:13px;
-  font-family:ui-monospace, "SF Mono", Monaco, monospace;
-  cursor:pointer;
-  transition:all 0.15s ease;
-  border-bottom:1px solid var(--soft);
-  display:flex;
-  align-items:center;
-}
-
-.mentionItem:last-child{
-  border-bottom:none;
-}
-
-.mentionItem:hover{
-  background:rgba(139,111,71,0.08);
-}
-
-.mentionItem.selected{
-  background:rgba(139,111,71,0.12);
-  color:var(--accent);
-}
-
-
 .promptActions{
   display:flex;
   justify-content:space-between;
@@ -2612,23 +2589,4 @@ body{
   font-size:11px;
   color:var(--muted);
   font-weight:500;
-}
-
-.mention{
-  background:rgba(139,111,71,0.15);
-  color:var(--accent);
-  padding:2px 6px;
-  border-radius:6px;
-  font-weight:600;
-  font-family:ui-monospace, "SF Mono", Monaco, monospace;
-}
-
-.promptInput .mention{
-  background:rgba(139,111,71,0.2);
-  color:var(--accent);
-  padding:3px 8px;
-  border-radius:8px;
-  font-weight:700;
-  font-family:ui-monospace, "SF Mono", Monaco, monospace;
-  border:1px solid rgba(139,111,71,0.3);
 }

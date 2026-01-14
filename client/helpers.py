@@ -66,25 +66,14 @@ def act(step):
             pyautogui.click(button="right")
 
         elif action == "type":
-            # Use clipboard paste for long text to avoid timeouts
-            if len(value) > 100:
-                pyperclip.copy(value)
-                # Use appropriate paste key for platform
-                if platform.system() == 'Darwin':  # macOS
-                    pyautogui.hotkey('command', 'v')
-                else:  # Windows/Linux
-                    pyautogui.hotkey('ctrl', 'v')
-                time.sleep(0.1)
-            else:
-                # Use write() for short text - much faster than typewrite()
-                pyautogui.write(value, interval=0.02)
+            pyautogui.write(value, interval=0.02)
 
         elif action == "press_key":
             pyautogui.press(value)
 
         elif action == "hotkey":
             if isinstance(value, str):
-                value = json.loads(value)
+                value = json.loads(value) # If value is a JSON string, parse it into a Python object
             pyautogui.hotkey(*value, interval=0.04)
 
         elif action == "scroll_up":
