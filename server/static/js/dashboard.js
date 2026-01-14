@@ -4,6 +4,46 @@ let lastCoord={x:null,y:null}
 let imgNat={w:820,h:520}
 let lastImgUrl=null
 
+function normalizeServerBase(raw) {
+  if(!raw) return null
+  const trimmed = raw.trim().replace(/\/+$/, '')
+  if(!trimmed) return null
+  if(/^https?:\/\//i.test(trimmed)) return trimmed
+  return `http://${trimmed}`
+}
+
+const apiBases = (() => {
+  const bases = []
+  const serverParam = new URLSearchParams(window.location.search).get('server')
+  const normalized = normalizeServerBase(serverParam)
+  if(normalized) {
+    bases.push(normalized)
+  }
+
+  if(window.location.protocol !== 'file:') {
+    bases.push(window.location.origin)
+    if(window.location.port !== '1234' && window.location.hostname) {
+      bases.push(`${window.location.protocol}//${window.location.hostname}:1234`)
+    }
+  } else {
+    bases.push('http://localhost:1234')
+    bases.push('http://127.0.0.1:1234')
+  }
+  return Array.from(new Set(bases))
+})()
+
+async function apiFetch(path, options) {
+  let lastError = null
+  for(const base of apiBases) {
+    try {
+      return await fetch(`${base}${path}`, options)
+    } catch (e) {
+      lastError = e
+    }
+  }
+  throw lastError || new Error('Network error')
+}
+
 function coord(c){return Array.isArray(c)&&c.length===2?{x:c[0],y:c[1]}:{x:null,y:null}}
 
 function sentence(s){
@@ -55,7 +95,7 @@ async function refreshScreen(){
   }
 
   try {
-    const r=await fetch(`/screen/${currentAgent}?t=${Date.now()}`,{cache:"no-store"})
+    const r=await apiFetch(`/screen/${currentAgent}?t=${Date.now()}`,{cache:"no-store"})
     if(!r.ok) throw new Error(`Screen fetch failed: ${r.status}`)
 
     const b=await r.blob()
@@ -95,7 +135,7 @@ async function updateState(){
   }
 
   try {
-    const r=await fetch(`/agent/${currentAgent}`,{cache:"no-store"})
+    const r=await apiFetch(`/agent/${currentAgent}`,{cache:"no-store"})
     if(!r.ok) throw new Error(`Agent state fetch failed: ${r.status}`)
 
     const d=await r.json()
@@ -129,7 +169,7 @@ let agentsList = []
 
 async function fetchAgents(){
   try {
-    const r=await fetch("/agents",{cache:"no-store"})
+    const r=await apiFetch("/agents",{cache:"no-store"})
     if(!r.ok) throw new Error(`Agents fetch failed: ${r.status}`)
 
     const agents=await r.json()
@@ -293,7 +333,7 @@ let selectedMentionIndex = -1
 // Mention System Functions
 async function loadAvailableAgents() {
   try {
-    const r = await fetch("/agents", {cache: "no-store"})
+    const r = await apiFetch("/agents", {cache: "no-store"})
     availableAgents = await r.json()
   } catch(e) {
     console.warn('Failed to load agents for mentions:', e)
@@ -428,7 +468,7 @@ async function sendTask() {
   }
 
   try {
-    const response = await fetch('/api/send-task', {
+    const response = await apiFetch('/api/send-task', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({task: cleanTask, agent_id: agentId, research_mode: researchModeEnabled})
@@ -454,11 +494,21 @@ async function sendTask() {
       return
     }
 
-    const result = await response.json()
-    if(result.success) {
+    let result = null
+    try {
+      const responseText = await response.text()
+      result = responseText ? JSON.parse(responseText) : null
+    } catch(e) {
+      console.error('Task send response parse error:', e)
+      showToast('Unexpected server response', 'error')
+      input.value = originalTask
+      return
+    }
+
+    if(result && result.success) {
       showToast(result.message || 'Task sent successfully', 'success')
     } else {
-      showToast(result.error || 'Failed to send task', 'error')
+      showToast((result && result.error) || 'Failed to send task', 'error')
       // Restore input on error so user can retry
       input.value = originalTask
     }
@@ -700,7 +750,7 @@ async function updateSupervisorGrid() {
   if(currentView !== 'supervisor') return
   
   try {
-    const r = await fetch("/agents", {cache: "no-store"})
+    const r = await apiFetch("/agents", {cache: "no-store"})
     if(!r.ok) throw new Error(`Agents fetch failed: ${r.status}`)
     
     const agents = await r.json()
@@ -727,7 +777,7 @@ async function updateSupervisorGrid() {
     const agentPromises = agents.map(async agent => {
       try {
         const [stateRes] = await Promise.allSettled([
-          fetch(`/agent/${agent.id}`, {cache: "no-store"})
+          apiFetch(`/agent/${agent.id}`, {cache: "no-store"})
         ])
         
         let agentData = {id: agent.id, status: 'idle', task: null, status_text: 'Idle'}
@@ -804,7 +854,7 @@ async function updateAgentTileContent(agent, tile) {
   // Fetch screenshot only when needed
   let screenshotUrl = null
   try {
-    const screenRes = await fetch(`/screen/${agent.id}?t=${Date.now()}`, {cache: "no-store"})
+    const screenRes = await apiFetch(`/screen/${agent.id}?t=${Date.now()}`, {cache: "no-store"})
     if(screenRes.ok) {
       const blob = await screenRes.blob()
       screenshotUrl = URL.createObjectURL(blob)
@@ -813,22 +863,25 @@ async function updateAgentTileContent(agent, tile) {
     // Screenshot failed, use placeholder
   }
   
-  // Create action capsule content
-  let actionText = agent.status_text || 'Unknown'
-  if(agent.step?.action) {
-    if(agent.step.action === 'click' && agent.step.coordinate) {
-      actionText = `Click ${agent.step.coordinate[0]}, ${agent.step.coordinate[1]}`
-    } else if(agent.step.action === 'type' && agent.step.value) {
-      actionText = `Type "${agent.step.value}"`
-    } else if(agent.step.action === 'scroll') {
-      actionText = `Scroll ${agent.step.value || ''}`
-    } else {
-      actionText = agent.step.action
-    }
+  function truncateText(text, maxLen) {
+    if(!text) return ''
+    return text.length > maxLen ? `${text.slice(0, maxLen - 1)}…` : text
   }
 
+  let stepText = 'No task'
+  if(agent.step?.action) {
+    stepText = sentence({
+      action: agent.step.action,
+      coordinate: agent.step.coordinate,
+      value: agent.step.value
+    })
+  } else if(agent.status === 'working') {
+    stepText = 'Working...'
+  }
+
+  stepText = truncateText(stepText, 44)
+
   tile.innerHTML = `
-    ${agent.step?.action ? `<div class="agentActionCapsule ${agent.step.action}">${actionText}</div>` : ''}
     <div class="agentTileContent">
       <div class="agentTileHeader">
         <div class="agentTileId">${agent.id || 'Unknown'}</div>
@@ -840,7 +893,7 @@ async function updateAgentTileContent(agent, tile) {
           <div class="agentMiniWin red"></div>
           <div class="agentMiniWin yellow"></div>
           <div class="agentMiniWin green"></div>
-          <div class="agentMiniAddress">${agent.id}</div>
+          <div class="agentMiniAddress" title="${stepText}">${stepText}</div>
         </div>
         <div class="agentMiniViewport" style="position: relative;">
           ${screenshotUrl ?
@@ -865,23 +918,21 @@ function createTileControls(agent) {
   const hasThought = agent.step?.reasoning
   const hasTask = agent.task && agent.status === 'working'
 
-  // Only show control buttons when agent has an active task
-  if(!hasTask) {
-    return ''
-  }
-
   return `
     <div class="tileControlsRow">
-      ${hasThought ? `
+      ${hasTask && hasThought ? `
         <button class="tileControlBtn" onclick="event.stopPropagation(); showCustomAlert('${agent.id} Thoughts', \`${(agent.step.reasoning || '').replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`)">
           Show Thought
         </button>
       ` : ''}
-      <button class="tileControlBtn iconOnly" onclick="event.stopPropagation(); stopAgent('${agent.id}')" title="Pause">
-        <i data-lucide="pause"></i>
-      </button>
-      <button class="tileControlBtn iconOnly danger" onclick="event.stopPropagation(); disconnectAgent('${agent.id}')" title="Remove">
+      ${hasTask ? `
+        <button class="tileControlBtn iconOnly" onclick="event.stopPropagation(); stopAgent('${agent.id}')" title="Pause">
+          <i data-lucide="pause"></i>
+        </button>
+      ` : ''}
+      <button class="tileControlBtn danger" onclick="event.stopPropagation(); disconnectAgent('${agent.id}')" title="Disconnect">
         <i data-lucide="x"></i>
+        Disconnect
       </button>
     </div>
   `
@@ -915,7 +966,7 @@ function showTaskModal(agentId, taskText) {
 
 async function stopAgent(agentId) {
   try {
-    const response = await fetch(`/api/agent/${agentId}/stop`, {method: 'POST'})
+    const response = await apiFetch(`/api/agent/${agentId}/stop`, {method: 'POST'})
     const result = await response.json()
     showToast(result.message || result.error, result.success ? 'success' : 'error')
   } catch(e) {
@@ -926,18 +977,42 @@ async function stopAgent(agentId) {
 async function disconnectAgent(agentId) {
   if(!confirm(`Remove ${agentId}? This will disconnect and delete its data.`)) return
   try {
-    const response = await fetch(`/api/agent/${agentId}/disconnect`, {method: 'POST'})
-    const result = await response.json()
-    showToast(result.message || result.error, result.success ? 'success' : 'error')
+    const response = await apiFetch(`/api/agent/${encodeURIComponent(agentId)}/disconnect`, {method: 'POST'})
+    let result = null
+    try {
+      result = await response.json()
+    } catch(e) {
+      // ignore parse errors, we'll fall back to a generic message
+    }
+
+    if(!response.ok) {
+      showToast((result && result.error) || 'Server rejected disconnect request', 'error')
+      return
+    }
+
+    showToast((result && result.message) || `Agent ${agentId} disconnected`, 'success')
+
+    if(currentAgent === agentId) {
+      currentAgent = null
+      updatePromptPlaceholder()
+      updateState()
+      refreshScreen()
+    }
+
+    fetchAgents()
+    if(currentView === 'supervisor') {
+      updateSupervisorGrid()
+    }
   } catch(e) {
-    showToast('Failed to connect to server', 'error')
+    console.error('Disconnect failed:', e)
+    showToast('Disconnect failed - server unreachable', 'error')
   }
 }
 
 async function stopServer() {
   if(!confirm('Shutdown the Harmony server? All agents will be disconnected.')) return
   try {
-    await fetch('/api/server/stop', {method: 'POST'})
+    await apiFetch('/api/server/stop', {method: 'POST'})
   } catch(e) {
     // Expected - server is shutting down
   }
@@ -962,22 +1037,36 @@ function hideConnectionOverlay() {
   overlay.classList.remove('error')
 }
 
+let toastTimeout = null
+let lastToastMessage = null
+let lastToastAt = 0
+
 function showToast(message, type = 'info') {
+  const now = Date.now()
+  const isRepeat = message === lastToastMessage && (now - lastToastAt) < 2000
+  lastToastMessage = message
+  lastToastAt = now
+
   const toast = $("toast")
   const msgEl = $("toastMessage")
   const iconEl = toast.querySelector('i')
 
-  msgEl.textContent = message
-  toast.className = 'toast show ' + type
+  if(!isRepeat) {
+    msgEl.textContent = message
+    toast.className = 'toast show ' + type
 
-  const iconMap = {info: 'info', error: 'alert-circle', success: 'check-circle'}
-  iconEl.setAttribute('data-lucide', iconMap[type] || 'info')
+    const iconMap = {info: 'info', error: 'alert-circle', success: 'check-circle'}
+    iconEl.setAttribute('data-lucide', iconMap[type] || 'info')
 
-  if (typeof lucide !== 'undefined') {
-    lucide.createIcons()
+    if (typeof lucide !== 'undefined') {
+      lucide.createIcons()
+    }
+  } else {
+    toast.classList.add('show')
   }
 
-  setTimeout(() => toast.classList.remove('show'), 2000)
+  if(toastTimeout) clearTimeout(toastTimeout)
+  toastTimeout = setTimeout(() => toast.classList.remove('show'), 2500)
 }
 
 function showGoodbye() {
