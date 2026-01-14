@@ -275,6 +275,14 @@
 <!-- Full Screen Connection Overlay -->
 <div class="connectionOverlay" id="connectionOverlay">
   <div class="connectionOverlayContent">
+    <div class="connectionOverlayTopActions">
+      <button class="controlBtn stopServerBtn" onclick="stopServer()" title="Shutdown server">
+        <i data-lucide="power"></i>
+      </button>
+      <button class="controlBtn fullscreenBtn" onclick="toggleFullscreen()" title="Toggle fullscreen">
+        <i data-lucide="maximize-2"></i>
+      </button>
+    </div>
     <div class="connectionOverlayHeader">
       <div class="connectionOverlayLogo">
         <img src="/icon.png" alt="Harmony" class="harmonyLogo">
