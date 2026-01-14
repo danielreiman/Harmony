@@ -2,7 +2,7 @@ import os
 import socket
 import threading
 import uuid
-from helpers import broadcast
+from helpers import broadcast, get_lan_ip
 from agent import Agent
 from manager import Manager
 from dashboard import init_dashboard, run_dashboard
@@ -47,7 +47,9 @@ def main():
         daemon=True
     )
     dashboard_thread.start()
+    lan_ip = get_lan_ip()
     print(f"[✓] Dashboard started on http://localhost:{DASHBOARD_PORT}")
+    print(f"[✓] Dashboard LAN URL: http://{lan_ip}:{DASHBOARD_PORT}")
 
     # Start TCP server
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

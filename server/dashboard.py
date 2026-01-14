@@ -20,6 +20,9 @@ def add_no_cache_headers(resp):
     resp.headers["Cache-Control"] = "no-store, no-cache, max-age=0, must-revalidate"
     resp.headers["Pragma"] = "no-cache"
     resp.headers["Expires"] = "0"
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
     return resp
 
 
@@ -68,8 +71,10 @@ def screen_file(agent_id):
     return resp
 
 
-@app.route("/api/send-task", methods=["POST"])
+@app.route("/api/send-task", methods=["POST", "OPTIONS"])
 def send_task():
+    if request.method == "OPTIONS":
+        return "", 204
     if _agents is None or _tasks is None:
         return jsonify({"success": False, "error": "Dashboard not connected to server"}), 503
 
@@ -99,8 +104,10 @@ def send_task():
             return jsonify({"success": True, "message": "Task added to queue"})
 
 
-@app.route("/api/agent/<agent_id>/stop", methods=["POST"])
+@app.route("/api/agent/<agent_id>/stop", methods=["POST", "OPTIONS"])
 def stop_agent(agent_id):
+    if request.method == "OPTIONS":
+        return "", 204
     if _agents is None:
         return jsonify({"success": False, "error": "Dashboard not connected to server"}), 503
 
@@ -119,8 +126,10 @@ def stop_agent(agent_id):
             return jsonify({"success": False, "error": f"Agent {agent_id} is not working"}), 400
 
 
-@app.route("/api/agent/<agent_id>/disconnect", methods=["POST"])
+@app.route("/api/agent/<agent_id>/disconnect", methods=["POST", "OPTIONS"])
 def disconnect_agent(agent_id):
+    if request.method == "OPTIONS":
+        return "", 204
     if _agents is None:
         return jsonify({"success": False, "error": "Dashboard not connected to server"}), 503
 
@@ -153,8 +162,10 @@ def disconnect_agent(agent_id):
         return jsonify({"success": True, "message": f"Agent {agent_id} removed"})
 
 
-@app.route("/api/server/stop", methods=["POST"])
+@app.route("/api/server/stop", methods=["POST", "OPTIONS"])
 def stop_server():
+    if request.method == "OPTIONS":
+        return "", 204
     try:
         if os.path.exists(RUNTIME_DIR):
             shutil.rmtree(RUNTIME_DIR)

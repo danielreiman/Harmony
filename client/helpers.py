@@ -110,11 +110,29 @@ def act(step):
         return False
 
 
+def _recv_exact(sock, size):
+    data = b""
+    while len(data) < size:
+        chunk = sock.recv(size - len(data))
+        if not chunk:
+            return None
+        data += chunk
+    return data
+
+
 def send_json(sock, obj):
-    sock.sendall(json.dumps(obj).encode())
+    data = json.dumps(obj).encode()
+    sock.sendall(len(data).to_bytes(8, "big"))
+    sock.sendall(data)
 
 def recv_json(sock):
-    data = sock.recv(4096)
+    size_bytes = _recv_exact(sock, 8)
+    if not size_bytes:
+        return None
+    size = int.from_bytes(size_bytes, "big")
+    if size <= 0:
+        return None
+    data = _recv_exact(sock, size)
     return json.loads(data.decode()) if data else None
 
 def send_file(sock, path):
