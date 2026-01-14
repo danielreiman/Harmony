@@ -1080,6 +1080,16 @@ function refreshAgent(agentId) {
 let researchModeEnabled = false
 
 function toggleResearchMode() {
+  // Require a Google Doc workspace link before enabling research
+  if(!researchModeEnabled) {
+    const workspaceUrl = localStorage.getItem("harmonyWorkspaceUrl") || ""
+    const hasDocLink = workspaceUrl.includes("docs.google") || workspaceUrl.includes("document")
+    if(!workspaceUrl || !hasDocLink) {
+      alert("To use research, add a Google Doc link (editable without sign-in) in the Workspace field.")
+      return
+    }
+  }
+
   researchModeEnabled = !researchModeEnabled
   const btn = $("researchToggle")
   if(researchModeEnabled) {
