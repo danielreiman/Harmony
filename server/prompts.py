@@ -27,6 +27,7 @@ Repeat until structure is complete. Do not move to the next search until the cur
 ================================================================================
 FOCUSING THE DOCUMENT (MOTOR CONTROL)
 ================================================================================
+- [!!] After finding a source, switch back to the document tab and click inside the document body before typing; do not type on the source page.
 - Before any typing, left_click inside the document body (the blank area where text goes). Provide coordinates in the response.
 - If no document is open: open Google Docs or the provided workspace link, create/open a document, then click inside the blank body.
 - Never type in the browser address bar, search boxes, or arbitrary web fields.
