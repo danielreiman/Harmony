@@ -16,7 +16,6 @@
 > To use the single agent version of Harmony without the orchestrator, parallel agents, or the central server, switch to the `single-agent` branch.
 
 ## Overview
-
 Harmony is a client-server automation system that distributes tasks across multiple computers. A central server coordinates AI-powered agents, each controlling a connected client machine. Tasks are automatically split and executed in parallel across all available clients.
 
 **Key Features:**
@@ -26,6 +25,11 @@ Harmony is a client-server automation system that distributes tasks across multi
 - Research & collaborative workspace support
 - Real-time agent monitoring via web dashboard
 - One agent per client architecture
+
+## How It Looks
+<p>
+  <img src="screenshots.png" alt="Harmony" width="500">
+</p>
 
 ## Quick Start
 
@@ -175,5 +179,6 @@ agent.activate()      # Wait for task assignment
     → agent.act()     # Execute action
     → agent.save()    # Save state
 ```
+
 
 
