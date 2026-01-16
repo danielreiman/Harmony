@@ -30,6 +30,35 @@ const apiBases = (() => {
   return Array.from(new Set(bases))
 })()
 
+const THEME_STORAGE_KEY = 'harmonyTheme'
+const DEFAULT_THEME = 'carbon'
+
+function applyTheme(theme) {
+  const useAlt = theme === 'carbon'
+  document.body.classList.toggle('theme-carbon', useAlt)
+}
+
+function initTheme() {
+  try {
+    const stored = localStorage.getItem(THEME_STORAGE_KEY)
+    applyTheme(stored || DEFAULT_THEME)
+  } catch(e) {
+    applyTheme(DEFAULT_THEME)
+  }
+}
+
+window.setHarmonyTheme = function(theme) {
+  const normalized = theme === 'default' ? 'default' : 'carbon'
+  if(normalized === 'default') {
+    localStorage.removeItem(THEME_STORAGE_KEY)
+  } else {
+    localStorage.setItem(THEME_STORAGE_KEY, normalized)
+  }
+  applyTheme(normalized)
+}
+
+initTheme()
+
 async function apiFetch(path, options) {
   let lastError = null
   for(const base of apiBases) {

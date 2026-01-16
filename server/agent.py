@@ -113,6 +113,7 @@ class Agent:
             if not self.act(response):
                 return False
 
+            time.sleep(1)
         return True
 
     def look(self) -> bool:
