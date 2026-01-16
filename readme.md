@@ -23,6 +23,7 @@ Harmony is a client-server automation system that distributes tasks across multi
 - Vision-based automation using AI models
 - Automatic LAN discovery
 - Parallel task execution
+- Research & collaborative workspace support
 - Real-time agent monitoring via web dashboard
 - One agent per client architecture
 
@@ -66,10 +67,8 @@ Clients auto-discover the server via UDP broadcast and connect automatically.
 
 ### 4. Monitor (Optional)
 
-The UI will be available at:
-```
-http://localhost:1234
-```
+The dashboard runs on the server machine at `http://localhost:1234`. To view it from another computer on the same LAN, use the server’s IP and port (e.g., `http://SERVER_IP:1234`).
+
 
 ## Architecture
 
