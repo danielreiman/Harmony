@@ -4,12 +4,13 @@ import threading
 import time
 from ollama import Client
 import config
+from google_docs import DocManager
 from prompts import RESEARCH_PROMPT, TASK_PROMPT
 from helpers import send, recv, recv_file
 
 RUNTIME_DIR = "./runtime/"
 MAX_HISTORY = 12
-MAX_PHASE_STUCK = 5
+MAX_PHASE_STUCK = 2
 
 
 class Agent:
@@ -35,6 +36,10 @@ class Agent:
         # AI conversation
         self.history = []
 
+        # Mode and collaboration target
+        self.research_mode = False
+        self.doc_id = None
+
         # File paths
         self.screen_path = f"{RUNTIME_DIR}screenshot_{self.id}.png"
         self.state_path = f"{RUNTIME_DIR}{self.id}.soul"
@@ -48,7 +53,49 @@ class Agent:
         if not api_key:
             raise RuntimeError("OLLAMA_API_KEY not found")
         self.ai = Client(host="https://ollama.com", headers={"Authorization": f"Bearer {api_key}"})
+        self.docs = DocManager(config.GOOGLE_SERVICE_ACCOUNT_FILE)
         self.save()
+
+    def _handle_doc_action(self, action: str, value, coordinate) -> bool:
+        if not self.research_mode:
+            return True
+
+        doc_id = self.doc_id
+        if not doc_id:
+            return True
+
+        try:
+            if action == "read_doc":
+                doc_snapshot = self.docs.read(doc_id)
+                doc_text = doc_snapshot.get("text", "")
+                summary = f"DOC_READ_RESULT ({doc_id}):\n{doc_text}"
+                self.history.append({"role": "user", "content": summary})
+                self.status_msg = "Doc read complete"
+            else:
+                text_input = ""
+                insert_index = None
+                if isinstance(value, dict):
+                    text_input = value.get("text", "") or ""
+                    insert_index = value.get("index")
+                else:
+                    text_input = "" if value is None else str(value)
+                if not text_input.strip():
+                    return True
+                result = self.docs.write(doc_id, text_input, index=insert_index)
+                summary = f"DOC_WRITE_RESULT ({doc_id}): wrote {result['written']} chars."
+                self.history.append({"role": "user", "content": summary})
+                self.status_msg = "Doc write complete"
+
+            self.step["success"] = True
+            self.save()
+            return True
+
+        except Exception as e:
+            self.history.append({"role": "user", "content": f"DOC_ACTION_ERROR: {e}"})
+            self.step["success"] = False
+            self.status_msg = "Doc action failed"
+            self.save()
+            return True
 
     def activate(self):
         try:
@@ -70,17 +117,21 @@ class Agent:
             self.status = "disconnected"
             print(f"[Agent {self.id}] Disconnected")
 
-    def assign(self, task: str, research_mode: bool = False):
+    def assign(self, task: str, research_mode: bool = False, doc_id: str = None):
         self.task = task
         self.status = "working"
         self.cycles = 0
         self.phase = None
         self.phase_count = 0
+        self.research_mode = research_mode
+        self.doc_id = doc_id
 
-        # Select prompt based on mode
         if research_mode:
             prompt = RESEARCH_PROMPT
-            user_msg = f"Research this topic and document findings with proper structure: {task}"
+            user_msg = (
+                f"Research this topic and document findings with proper structure: {task}\n"
+                "Use read_doc/write_doc actions"
+            )
         else:
             prompt = TASK_PROMPT
             user_msg = f"Execute this task directly (no research needed): {task}"
@@ -140,25 +191,28 @@ class Agent:
         self.save()
 
         try:
-            trimmed = self.history[:2] + self.history[-MAX_HISTORY:]
-            result = self.ai.chat(model=self.model, messages=trimmed)
-            raw = result["message"]["content"].strip()
+            initial_messages = self.history[:2]
+            recent_messages = self.history[-MAX_HISTORY:]
+            messages = initial_messages + recent_messages
+
+            chat_result = self.ai.chat(model=self.model, messages=messages)
+            raw_text = chat_result["message"]["content"].strip()
 
             try:
-                start = raw.find("{")
-                end = raw.rfind("}") + 1
+                start = raw_text.find("{")
+                end = raw_text.rfind("}") + 1
                 if start == -1 or end == 0:
                     raise ValueError("No JSON found")
 
-                parsed = json.loads(raw[start:end])
-                parsed["raw"] = raw
+                parsed = json.loads(raw_text[start:end])
+                parsed["raw"] = raw_text
 
-                print(f"[Agent {self.id}] AI response: {raw}")
+                print(f"[Agent {self.id}] AI response: {raw_text}")
 
                 if self.history and "images" in self.history[-1]:
                     self.history[-1].pop("images", None)
 
-                self.history.append({"role": "assistant", "content": raw})
+                self.history.append({"role": "assistant", "content": raw_text})
                 return parsed
 
             except (json.JSONDecodeError, ValueError) as e:
@@ -168,7 +222,7 @@ class Agent:
                     "Status": "Parse Error",
                     "Next Action": "None",
                     "Reasoning": str(e),
-                    "raw": raw
+                    "raw": raw_text
                 }
         except Exception as e:
             print(f"[Agent {self.id}] AI error: {e}")
@@ -199,13 +253,17 @@ class Agent:
             self.phase_count = 1
 
         if self.phase_count > MAX_PHASE_STUCK:
-            hint = f"You've been on {current_phase} for {self.phase_count} actions. Move to next step. SEARCH→READ→WRITE→SEARCH."
+            hint = (
+                f"You've been on {current_phase} for {self.phase_count} actions. "
+                "Stop repeating the same action; switch phases (SEARCH→READ→WRITE→SEARCH). "
+                "Do not repeat identical searches—move to notes and write_doc."
+            )
             self.history.append({"role": "user", "content": hint})
             print(f"[Agent {self.id}] Stuck on {current_phase} for {self.phase_count} actions")
 
     def done(self) -> bool:
-        action = self.step.get("action")
-        if action in [None, "None"]:
+        action_name = self.step.get("action")
+        if action_name in [None, "None"]:
             self.status = "idle"
             self.status_msg = "Done"
             self.save()
@@ -216,13 +274,20 @@ class Agent:
         self.status_msg = self.step.get("status_short", "Acting...")
         self.save()
 
-        cmd = {
-            "Next Action": response.get("Next Action"),
-            "Coordinate": response.get("Coordinate"),
-            "Value": response.get("Value")
+        action = response.get("Next Action")
+        value = response.get("Value")
+        coordinate = response.get("Coordinate")
+
+        if action in {"read_doc", "write_doc"}:
+            return self._handle_doc_action(action, value, coordinate)
+
+        command_payload = {
+            "Next Action": action,
+            "Coordinate": coordinate,
+            "Value": value
         }
 
-        if not send({"type": "execute_step", "step": cmd}, self.conn):
+        if not send({"type": "execute_step", "step": command_payload}, self.conn):
             print(f"[Agent {self.id}] Failed to send action")
             return False
 
@@ -243,6 +308,8 @@ class Agent:
             "status": self.status,
             "task": self.task,
             "status_text": self.status_msg,
+            "research_mode": self.research_mode,
+            "doc_id": self.doc_id,
             "step": self.step,
             "cycle": self.cycles,
             "phase": self.phase,
