@@ -19,3 +19,4 @@ __pycache__/
 CLAUDE.md
 .claude
 
+server/service-account.json
