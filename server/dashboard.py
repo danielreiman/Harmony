@@ -12,6 +12,19 @@ _agents = None
 _agents_lock = None
 _tasks = None
 
+SERVICE_ACCOUNT_PATH = os.path.join(os.path.dirname(__file__), "service-account.json")
+
+
+def _service_account_email():
+    if not os.path.exists(SERVICE_ACCOUNT_PATH):
+        return None
+    try:
+        with open(SERVICE_ACCOUNT_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("client_email")
+    except Exception:
+        return None
+
 
 def init_dashboard(agents, agents_lock, tasks):
     global _agents, _agents_lock, _tasks
@@ -32,7 +45,12 @@ def add_no_cache_headers(resp):
 
 @app.route("/")
 def index():
-    return render_template('dashboard.html')
+    email = _service_account_email()
+    return render_template(
+        "dashboard.html",
+        service_account_present=bool(email),
+        service_account_email=email or "",
+    )
 
 
 @app.route("/icon.png")
@@ -92,6 +110,7 @@ def send_task():
     task = data.get("task", "").strip()
     agent_id = data.get("agent_id")
     research_mode = data.get("research_mode", False)
+    doc_id = data.get("doc_id")
 
     if not task:
         return jsonify({"success": False, "error": "Task is required"}), 400
@@ -103,13 +122,13 @@ def send_task():
                 return jsonify({"success": False, "error": f"Agent {agent_id} not found"}), 404
             if agent.status == "idle":
                 mode_text = " (research mode)" if research_mode else ""
-                agent.assign(task, research_mode=research_mode)
+                agent.assign(task, research_mode=research_mode, doc_id=doc_id)
                 return jsonify({"success": True, "message": f"Task assigned to {agent_id}{mode_text}"})
 
             agent.history.append({"role": "user", "content": task})
             return jsonify({"success": True, "message": f"Message sent to {agent_id}"})
 
-        queued_task = {"task": task, "research_mode": research_mode} if research_mode else task
+        queued_task = {"task": task, "research_mode": research_mode, "doc_id": doc_id} if research_mode else task
         _tasks.append(queued_task)
         return jsonify({"success": True, "message": "Task added to queue"})
 

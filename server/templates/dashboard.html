@@ -178,25 +178,39 @@
 
 <!-- Floating Actions -->
 <div class="floatingActions">
-  <button class="workspaceButton" id="workspaceBtn" title="Workspace">
+  <button class="workspaceButton" id="workspaceBtn" title="Workspace" onclick="toggleWorkspacePanel()">
     Workspace
   </button>
-  <div class="workspaceToast" id="workspaceToast">
-    <div class="workspaceToastHeader">
-      <div class="workspaceToastTitle">
-        <i data-lucide="link"></i>
-        Shared Workspace
+  <div class="workspacePanel" id="workspacePanel">
+    <div class="workspacePanelHeader">
+      <div class="workspaceHeaderLeft">
+        <div class="workspaceBadge">
+          <i data-lucide="sparkles"></i>
+          <span>Experimental</span>
+        </div>
+        <div class="workspacePanelTitle">Shared Workspace</div>
       </div>
-      <button class="workspaceToastClose" onclick="closeWorkspaceToast()" aria-label="Close workspace panel">✕</button>
+      <button class="workspacePanelClose" onclick="closeWorkspacePanel()" aria-label="Close workspace panel">✕</button>
     </div>
-    <div class="workspaceToastBody">
-      <p>Share a doc or board URL so agents can collaborate in one place.</p>
-      <div class="workspaceToastField">
-        <input type="text" class="workspaceToastInput" id="workspaceUrlInput" placeholder="Paste shared URL (Notion, Google Doc, etc.)">
+    <div class="workspacePanelSub">Shared doc for all agents to research together.</div>
+    <div class="workspacePanelInfo" id="workspaceKeyInfo"></div>
+    <div class="workspaceField">
+      <label for="workspaceUrlInput">Google Docs URL</label>
+      <input type="text" id="workspaceUrlInput" class="workspaceInput" placeholder="https://...your-shared-doc..." />
+    </div>
+    <div class="workspaceField workspaceEmailField">
+      <div class="workspaceFieldTop">
+        <label>Agent Email</label>
+        <button class="copyEmailBtn" onclick="copyWorkspaceEmail()">Copy</button>
       </div>
+      <div class="workspaceEmail" id="workspaceEmail"></div>
     </div>
-    <div class="workspaceToastActions">
-      <button class="workspaceToastSave" onclick="saveWorkspaceUrl()">Save</button>
+    <div class="workspaceHint">
+      In your shared document, click “Share” and add this email as Editor so agents can write via API.<br>
+      Need a service account file? <a href="https://blog.dataengineerthings.org/setting-up-a-google-cloud-service-account-with-json-key-for-authentication-d673e10ea8e7" target="_blank" rel="noreferrer">Follow this guide</a>.
+    </div>
+    <div class="workspaceActions">
+      <button class="workspaceSave" onclick="saveWorkspace()">Save</button>
     </div>
   </div>
 </div>
@@ -252,6 +266,13 @@
   <i data-lucide="info"></i>
   <span id="toastMessage">Message</span>
 </div>
+
+<script>
+  window.harmonyServiceAccount = {
+    hasKey: {{ 'true' if service_account_present else 'false' }},
+    email: {{ service_account_email|tojson }}
+  };
+</script>
 
 <!-- Custom Alert Modal -->
 <div class="customAlert" id="customAlert">

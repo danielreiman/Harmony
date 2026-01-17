@@ -41,7 +41,6 @@ body.theme-carbon .githubBtn,
 body.theme-carbon .promptSection,
 body.theme-carbon .browserFrame,
 body.theme-carbon .taskStatusPanel,
-body.theme-carbon .workspaceToast,
 body.theme-carbon .tileControlBtn,
 body.theme-carbon .agentTileContent,
 body.theme-carbon .agentMiniWindow,
@@ -260,40 +259,6 @@ body.theme-carbon .actionButton:hover{
   background:#353535;
 }
 
-body.theme-carbon .workspaceToast{
-  background:var(--field);
-  border:1px solid var(--border);
-  box-shadow:none;
-}
-
-body.theme-carbon .workspaceToastClose{
-  border-color:var(--border);
-  color:var(--text);
-}
-
-body.theme-carbon .workspaceToastClose:hover{
-  border-color:var(--border);
-  color:var(--text);
-  background:#353535;
-}
-
-body.theme-carbon .workspaceToastTitle i{
-  color:var(--text);
-}
-
-body.theme-carbon .workspaceToastSave{
-  background:var(--field);
-  color:var(--text);
-  border:1px solid var(--border);
-  box-shadow:none;
-}
-
-body.theme-carbon .workspaceToastSave:hover{
-  background:#353535;
-  border-color:var(--border);
-  box-shadow:none;
-}
-
 body.theme-carbon .tileControlBtn{
   border:1px solid var(--border);
   background:var(--field);
@@ -319,10 +284,6 @@ body.theme-carbon .agentMiniAddress{
 
 body.theme-carbon .agentMiniViewport{
   background:#1b1b1b;
-}
-
-body.theme-carbon .workspaceToast{
-  border:1px solid var(--border);
 }
 
 body.theme-carbon .promptSection{
@@ -1122,9 +1083,9 @@ body.theme-carbon .screenImg{
   padding:0 36px;
   border-radius:34px;
   border:none;
-  background:linear-gradient(135deg, var(--accent) 0%, #7a5f3f 100%);
-  color:white;
-  box-shadow:0 8px 24px rgba(139,111,71,0.3), 0 2px 8px rgba(139,111,71,0.2);
+  background:var(--field);
+  color:var(--text);
+  box-shadow:none;
   cursor:pointer;
   font-size:15px;
   font-weight:600;
@@ -1133,130 +1094,225 @@ body.theme-carbon .screenImg{
 }
 
 .workspaceButton:hover{
-  background:linear-gradient(135deg, #7a5f3f 0%, #6b5537 100%);
-  box-shadow:0 12px 32px rgba(139,111,71,0.4), 0 4px 12px rgba(139,111,71,0.25);
+  background:var(--panel);
+  box-shadow:none;
   transform:translateY(-2px);
 }
 
 .workspaceButton.active{
-  box-shadow:0 16px 36px rgba(139,111,71,0.45), 0 6px 16px rgba(139,111,71,0.25);
+  box-shadow:none;
 }
 
-.workspaceToast{
+.workspacePanel{
   position:absolute;
   right:0;
   bottom:82px;
   width:360px;
-  background:rgba(255,255,255,0.98);
-  border:2px solid var(--border);
-  border-radius:20px;
-  box-shadow:0 18px 60px rgba(0,0,0,0.18), 0 4px 16px rgba(0,0,0,0.08);
-  padding:18px;
+  background:var(--field);
+  border:1px solid var(--border);
+  border-radius:14px;
+  padding:20px;
   display:none;
   flex-direction:column;
   gap:14px;
-  z-index:60;
-  backdrop-filter:blur(18px);
+  z-index:80;
+  box-shadow:0 18px 40px rgba(0,0,0,0.16);
 }
 
-.workspaceToast.open{
+.workspacePanel.open{
   display:flex;
-  animation:dropdownFadeIn 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.workspaceToastHeader{
+.workspacePanelHeader{
   display:flex;
-  align-items:center;
   justify-content:space-between;
-  gap:12px;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
 }
 
-.workspaceToastTitle{
+.workspaceHeaderLeft{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  align-items:flex-start;
+}
+
+.workspacePanelTitle{
+  font-size:15px;
+  font-weight:750;
+  color:var(--text);
+}
+
+.workspaceBadge{
+  font-size:12px;
+  font-weight:700;
+  color:var(--muted);
   display:flex;
   align-items:center;
+  gap:6px;
+}
+
+.workspaceBadge i,
+.workspaceBadge svg{
+  width:12px;
+  height:12px;
+  color:var(--muted);
+  stroke:var(--muted);
+}
+
+.workspacePanelClose{
+  border:none;
+  background:transparent;
+  color:var(--muted);
+  width:32px;
+  height:32px;
+  border-radius:8px;
+  cursor:pointer;
+  font-size:18px;
+}
+
+.workspacePanelSub{
+  font-size:12px;
+  color:var(--muted);
+  line-height:1.6;
+}
+
+.workspacePanelInfo{
+  font-size:12px;
+}
+
+.workspaceInfoGood,
+.workspaceInfoWarn{
+  padding:10px 12px;
+  border-radius:10px;
+  line-height:1.5;
+}
+
+.workspaceInfoGood{
+  background:rgba(52,208,88,0.08);
+  border:1px solid rgba(52,208,88,0.3);
+  color:var(--text);
+}
+
+.workspaceInfoWarn{
+  background:rgba(255,189,46,0.08);
+  border:1px solid rgba(255,189,46,0.35);
+  color:var(--text);
+  font-size:13px;
+}
+
+.workspaceField{
+  display:flex;
+  flex-direction:column;
   gap:10px;
-  font-size:14px;
+}
+
+.workspaceField label{
+  font-size:12px;
+  font-weight:700;
+  color:var(--muted);
+}
+
+.workspaceInput{
+  width:100%;
+  height:40px;
+  border-radius:12px;
+  border:1px solid var(--border);
+  background:var(--panel);
+  padding:0 12px;
+  font-size:13px;
+  color:var(--text);
+  outline:none;
+  transition:var(--transition);
+}
+
+.workspaceInput:focus{
+  border-color:var(--accent);
+  box-shadow:none;
+}
+
+.workspaceEmailField{
+  gap:10px;
+}
+
+.workspaceFieldTop{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:8px;
+}
+
+.workspaceEmail{
+  background:var(--field);
+  border:1px solid var(--border);
+  border-radius:10px;
+  padding:8px 10px;
+  font-size:12px;
+  color:var(--text);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+.copyEmailBtn{
+  height:30px;
+  padding:0 10px;
+  border-radius:8px;
+  border:1px solid var(--border);
+  background:var(--field);
+  cursor:pointer;
+  font-size:11px;
   font-weight:700;
   color:var(--text);
 }
 
-.workspaceToastTitle i{
-  width:16px;
-  height:16px;
-  color:var(--accent);
-}
-
-.workspaceToastClose{
-  width:28px;
-  height:28px;
-  border-radius:50%;
-  border:1px solid var(--border);
-  background:transparent;
-  color:var(--muted);
-  cursor:pointer;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  transition:all 0.2s ease;
-}
-
-.workspaceToastClose:hover{
+.copyEmailBtn:hover{
   border-color:var(--accent);
   color:var(--accent);
 }
 
-.workspaceToastBody p{
-  margin:0;
-  font-size:13px;
+.workspaceHint{
+  font-size:11px;
   color:var(--muted);
   line-height:1.5;
+  background:transparent;
+  border:none;
+  padding:0;
 }
 
-.workspaceToastField{
-  display:flex;
-  align-items:center;
-  padding:10px 6px;
+.workspaceHint a{
+  color:#1a73e8;
+  text-decoration:underline;
 }
 
-.workspaceToastInput{
-  width:100%;
-  height:40px;
-  padding:0 14px;
-  border-radius:12px;
-  border:1px solid var(--border);
-  background:var(--field);
-  font-size:13px;
-  color:var(--text);
-  outline:none;
-  transition:all 0.2s ease;
-}
-
-.workspaceToastInput:focus{
-  border-color:var(--border);
-  box-shadow:none;
-}
-
-.workspaceToastActions{
+.workspaceActions{
   display:flex;
   justify-content:flex-end;
+  margin-top:6px;
 }
 
-.workspaceToastSave{
-  height:36px;
-  padding:0 18px;
-  border-radius:18px;
-  border:none;
-  background:linear-gradient(135deg, var(--accent) 0%, #7a5f3f 100%);
-  color:white;
+.workspaceSave{
+  height:34px;
+  padding:0 14px;
+  border-radius:10px;
+  border:1px solid var(--border);
+  background:var(--panel);
+  color:var(--text);
+  cursor:pointer;
   font-size:12px;
   font-weight:700;
-  cursor:pointer;
-  transition:all 0.2s ease;
+  transition:var(--transition);
 }
 
-.workspaceToastSave:hover{
-  background:linear-gradient(135deg, #7a5f3f 0%, #6b5537 100%);
-  transform:translateY(-1px);
+.workspaceSave:hover{
+  border-color:var(--accent);
+  color:var(--accent);
+}
+
+.workspaceCancel:hover{
+  border-color:var(--accent);
+  color:var(--accent);
 }
 
 .actionButton{
@@ -2834,55 +2890,6 @@ body.theme-carbon .goodbyeBtn:hover{
   background:var(--muted);
   border-radius:50%;
   opacity:0.4;
-}
-
-.workspaceUrl{
-  display:flex;
-  align-items:center;
-  gap:8px;
-  width:100%;
-  max-width:400px;
-}
-
-.workspaceUrl i{
-  width:14px;
-  height:14px;
-  color:var(--muted);
-  flex-shrink:0;
-}
-
-.workspaceInput{
-  flex:1;
-  height:32px;
-  padding:0 12px;
-  border-radius:8px;
-  border:1px solid var(--border);
-  background:rgba(255,255,255,0.9);
-  font-size:12px;
-  color:var(--text);
-  outline:none;
-  transition:all 0.2s ease;
-}
-
-.workspaceInput:focus{
-  border-color:var(--accent);
-  background:white;
-}
-
-body.theme-carbon .workspaceInput{
-  background:var(--field);
-  border-color:var(--border);
-  color:var(--text);
-}
-
-body.theme-carbon .workspaceInput:focus{
-  background:#353535;
-  border-color:var(--border);
-}
-
-.workspaceInput::placeholder{
-  color:var(--muted);
-  opacity:0.6;
 }
 
 .promptRow{
