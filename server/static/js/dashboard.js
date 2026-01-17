@@ -1,6 +1,7 @@
 const $=id=>document.getElementById(id)
 let currentAgent=null
 let lastImgUrl=null
+const serviceAccountInfo = (window.harmonyServiceAccount || {hasKey:false,email:""})
 
 function normalizeServerBase(raw) {
   if(!raw) return null
@@ -95,6 +96,12 @@ function stripTaskMeta(taskText) {
   const cutPoints = markers.map(marker => taskText.indexOf(marker)).filter(index => index !== -1)
   if(!cutPoints.length) return taskText.trim()
   return taskText.slice(0, Math.min(...cutPoints)).trim()
+}
+
+function extractDocId(url) {
+  if(!url) return null
+  const match = url.match(/\/document\/d\/([a-zA-Z0-9_-]+)/)
+  return match ? match[1] : null
 }
 
 async function refreshScreen(){
@@ -346,7 +353,7 @@ function updatePromptPlaceholder() {
   }
 }
 
-function buildTaskWithContext({task, agentId, agents, workspaceUrl, isResearch, isCollab}) {
+function buildTaskWithContext({task, agentId, agents, workspaceUrl, isResearch, isCollab, docId}) {
   const orderedAgents = agents.length ? agents : (agentId ? [agentId] : [])
   const introAgent = orderedAgents[0]
   const closingAgent = orderedAgents[orderedAgents.length - 1]
@@ -364,9 +371,10 @@ function buildTaskWithContext({task, agentId, agents, workspaceUrl, isResearch, 
   }
 
   const docRules = [
-    "- Document sections: Instructions/Approach (one paragraph), Findings (one paragraph per subject), Conclusion (one paragraph), Bibliography (source list).",
-    "- Findings: each subject is its own section/paragraph with inline source credit (site name).",
-    "- Bibliography entries: 'Source Name - URL', include every cited source."
+    "- Google Doc is shared; agents use read_doc/write_doc API only (no UI opening).",
+    "- Structure: Title (only heading), Notes (bullets, short, with source names), Introduction (short), Findings (one short paragraph per subject with inline source), Conclusion (short), Bibliography (Author or Org. (Year, Month Day). Title. Site. URL).",
+    "- Keep paragraphs brief with blank lines; bullets start with '-'.",
+    "- Start by reading the doc; do not overwrite existing text."
   ]
 
   const lines = [
@@ -383,12 +391,9 @@ function buildTaskWithContext({task, agentId, agents, workspaceUrl, isResearch, 
     lines.push(
       "",
       "Collab research instructions:",
-      "- Open the shared workspace URL immediately and write findings there.",
-      `- Create a new page or section titled "${agentId}" (bold, left-aligned).`,
-      "- Leave a blank line after the title, then write all your findings under it.",
-      "- Keep each subject in its own paragraph with source credit.",
-      "- Team split: first agent writes Instructions/Approach; middle agents each write one findings paragraph; last agent writes Conclusion + Bibliography + cleanup.",
-      "- Do not edit other agents' sections except the final cleanup agent."
+      "- Use read_doc/write_doc only; do not open the doc UI.",
+      "- Notes: bullets with source names; Findings: one short paragraph per subject; keep spacing clean.",
+      "- Team split: first agent writes Instructions/Approach; middle agents each write one findings paragraph; last agent writes Conclusion + Bibliography + cleanup."
     )
   }
 
@@ -397,8 +402,8 @@ function buildTaskWithContext({task, agentId, agents, workspaceUrl, isResearch, 
       "",
       "Document setup:",
       workspaceUrl
-        ? "- Open the shared workspace URL before any research. Confirm the caret is in the document body before typing."
-        : "- Create or open a Google Doc before any research. Confirm the caret is in the document body before typing."
+        ? "- Shared Google Doc provided. Use API actions only; do not open the URL."
+        : "- No shared doc provided. Ask once if a doc link is missing."
     )
     lines.push("", "Document rules:", ...docRules)
   }
@@ -425,6 +430,7 @@ async function sendTask() {
 
   try {
     const workspaceUrl = localStorage.getItem("harmonyWorkspaceUrl") || ""
+    const docId = extractDocId(workspaceUrl) || localStorage.getItem("harmonyDocId") || null
     let targetAgents = []
     let collabAgents = []
     let isCollab = false
@@ -457,10 +463,12 @@ async function sendTask() {
         agents: collabAgents.length ? collabAgents : (agentId ? [agentId] : []),
         workspaceUrl,
         isResearch: researchModeEnabled,
-        isCollab
+        isCollab,
+        docId
       }),
       agent_id: targetId,
-      research_mode: researchModeEnabled
+      research_mode: researchModeEnabled,
+      doc_id: docId
     }))
     const responses = await Promise.all(payloads.map(body => apiFetch('/api/send-task', {
       method: 'POST',
@@ -536,43 +544,90 @@ function closeResultsModal() {
   modal.classList.remove('open')
 }
 
-// Workspace popover
-function openWorkspaceToast() {
-  const toast = $("workspaceToast")
-  const btn = $("workspaceBtn")
-  if(!toast || !btn) return
-  toast.classList.add("open")
-  btn.classList.add("active")
+// Workspace modal
+function populateWorkspaceEmail() {
+  const email = serviceAccountInfo.email || "service account email not found"
+  const emailEl = $("workspaceEmail")
+  if(emailEl) {
+    emailEl.textContent = email
+  }
+  const info = $("workspaceKeyInfo")
+  if(info) {
+    if(serviceAccountInfo.hasKey && serviceAccountInfo.email) {
+      info.className = ""
+      info.innerHTML = ""
+    } else {
+      info.className = "workspaceInfoWarn"
+      info.innerHTML = `Place <code>service-account.json</code> in <code>server/</code>, restart.`
+    }
+  }
+}
+
+function openWorkspacePanel() {
+  populateWorkspaceEmail()
+  const panel = $("workspacePanel")
+  if(!panel) return
   const input = $("workspaceUrlInput")
   if(input) {
     input.value = localStorage.getItem("harmonyWorkspaceUrl") || ""
     input.focus()
   }
+  panel.classList.add("open")
 }
 
-function closeWorkspaceToast() {
-  const toast = $("workspaceToast")
-  const btn = $("workspaceBtn")
-  if(!toast || !btn) return
-  toast.classList.remove("open")
-  btn.classList.remove("active")
+function closeWorkspacePanel() {
+  const panel = $("workspacePanel")
+  if(!panel) return
+  panel.classList.remove("open")
 }
 
-function saveWorkspaceUrl() {
+function toggleWorkspacePanel() {
+  const panel = $("workspacePanel")
+  if(!panel) return
+  if(panel.classList.contains("open")) {
+    closeWorkspacePanel()
+  } else {
+    openWorkspacePanel()
+  }
+}
+
+function copyWorkspaceEmail() {
+  const email = serviceAccountInfo.email
+  if(!email) {
+    showToast("No service account email found", "error")
+    return
+  }
+  navigator.clipboard.writeText(email).then(() => {
+    showToast("Email copied", "success")
+  }).catch(() => showToast("Copy failed", "error"))
+}
+
+function saveWorkspace() {
   const input = $("workspaceUrlInput")
   if(!input) return
-  const url = input.value.trim()
+  const url = (input.value || "").trim()
+  const docId = extractDocId(url)
+
+  if(url && !docId) {
+    showToast("Paste a valid Google Doc URL", "error")
+    return
+  }
+
   if(url) {
     localStorage.setItem("harmonyWorkspaceUrl", url)
-    showToast("Workspace URL saved", "success")
+    if(docId) {
+      localStorage.setItem("harmonyDocId", docId)
+    }
   } else {
     localStorage.removeItem("harmonyWorkspaceUrl")
-    showToast("Workspace URL cleared", "info")
+    localStorage.removeItem("harmonyDocId")
   }
-  closeWorkspaceToast()
+
+  showToast(url ? "Workspace saved" : "Workspace cleared", "success")
+  closeWorkspacePanel()
 }
 
-// Close modal when clicking outside or pressing Escape
+// Close panel when clicking outside or pressing Escape
 document.addEventListener('click', e => {
   if(e.target.id === 'resultsModal') {
     closeResultsModal()
@@ -583,8 +638,10 @@ document.addEventListener('click', e => {
   if(e.target.id === 'customAlert') {
     closeCustomAlert()
   }
-  if(!e.target.closest('.workspaceToast') && !e.target.closest('#workspaceBtn')) {
-    closeWorkspaceToast()
+  const panel = $("workspacePanel")
+  const btn = $("workspaceBtn")
+  if(panel && panel.classList.contains("open") && !e.target.closest('#workspacePanel') && !e.target.closest('#workspaceBtn')) {
+    closeWorkspacePanel()
   }
 })
 
@@ -599,25 +656,11 @@ document.addEventListener('keydown', e => {
     if($("customAlert").classList.contains('open')) {
       closeCustomAlert()
     }
-    if($("workspaceToast").classList.contains('open')) {
-      closeWorkspaceToast()
+    if($("workspacePanel").classList.contains('open')) {
+      closeWorkspacePanel()
     }
   }
 })
-
-const workspaceBtn = $("workspaceBtn")
-if(workspaceBtn) {
-  workspaceBtn.addEventListener("click", (e) => {
-    e.stopPropagation()
-    const toast = $("workspaceToast")
-    if(!toast) return
-    if(toast.classList.contains("open")) {
-      closeWorkspaceToast()
-    } else {
-      openWorkspaceToast()
-    }
-  })
-}
 
 // Prompt functionality
 $("promptSend").onclick = sendTask
@@ -1088,9 +1131,10 @@ function toggleResearchMode() {
   // Require a Google Doc workspace link before enabling research
   if(!researchModeEnabled) {
     const workspaceUrl = localStorage.getItem("harmonyWorkspaceUrl") || ""
-    const hasDocLink = workspaceUrl.includes("docs.google") || workspaceUrl.includes("document")
-    if(!workspaceUrl || !hasDocLink) {
-      alert("To use research, add a Google Doc link (editable without sign-in) in the Workspace field.")
+    const docId = extractDocId(workspaceUrl) || localStorage.getItem("harmonyDocId")
+    const hasKey = !!serviceAccountInfo.hasKey
+    if(!workspaceUrl || !docId || !hasKey) {
+      alert("To use research, add a Google Docs URL in Workspace and place service-account.json in server/ (shared as Editor).")
       return
     }
   }
