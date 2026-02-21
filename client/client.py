@@ -1,50 +1,65 @@
-import socket, os
-from helpers import *
+import os
+import socket
+import pyautogui
+from helpers import discover, act, send_json, recv_json, send_file
 
-SERVER_HOST = discover()
 SERVER_PORT = 1222
+RUNTIME_DIR = "./runtime"
+SCREENSHOT_PATH = os.path.join(RUNTIME_DIR, "screenshot.png")
+
+
+def handle_screenshot_request(sock: socket.socket):
+    screenshot = pyautogui.screenshot()
+    screenshot.save(SCREENSHOT_PATH)
+    send_file(sock, SCREENSHOT_PATH)
+
+
+def handle_action_request(sock: socket.socket, message: dict):
+    step = message.get("step")
+    action_succeeded = act(step)
+
+    error_message = None
+    if not action_succeeded:
+        action_name = step.get("Next Action", "unknown")
+        error_message = f"Action '{action_name}' failed to execute"
+        print(f"[Client] Action failed: {action_name}")
+
+    send_json(sock, {
+        "type": "execution_result",
+        "success": action_succeeded,
+        "error": error_message
+    })
+
 
 def main():
-    os.makedirs("./runtime", exist_ok=True)
+    os.makedirs(RUNTIME_DIR, exist_ok=True)
+
+    print("[Client] Searching for Harmony server...")
+    server_ip = discover(timeout=30)
+    print(f"[Client] Found server at {server_ip}")
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect((SERVER_HOST, SERVER_PORT))
-    print("[CLIENT] Connected to server")
+    sock.connect((server_ip, SERVER_PORT))
+    print("[Client] Connected to server")
+
     try:
         while True:
-            msg = recv_json(sock)
-            if not msg:
+            message = recv_json(sock)
+            if message is None:
                 break
 
-            msg_type = msg.get("type")
+            message_type = message.get("type")
 
-            # ======== SEND SCREENSHOT ========
-            if msg_type == "request_screenshot":
-                screenshot = pyautogui.screenshot()
-                screenshot.save("./runtime/screenshot.png")
+            if message_type == "request_screenshot":
+                handle_screenshot_request(sock)
 
-                send_file(sock, "./runtime/screenshot.png")
-
-            # ======== EXECUTE STEP ========
-            elif msg_type == "execute_step":
-                step = msg.get("step")
-                success = act(step)
-                error_msg = None
-                
-                if not success:
-                    action = step.get("Next Action", "unknown")
-                    error_msg = f"Action '{action}' failed to execute"
-                    print(f"[CLIENT] Action failed: {action}")
-
-                send_json(sock, {
-                    "type": "execution_result",
-                    "success": success,
-                    "error": error_msg
-                })
+            elif message_type == "execute_step":
+                handle_action_request(sock, message)
 
     finally:
         sock.close()
-        print("[CLIENT] Disconnected")
+        print("[Client] Disconnected")
+
 
 if __name__ == "__main__":
     main()

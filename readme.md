@@ -1,5 +1,5 @@
 <p>
-  <img src="icon.png" alt="Harmony" width="150">
+  <img src="dashboard/icon.png" alt="Harmony" width="150">
 </p>
 
 <h1>Harmony</h1>

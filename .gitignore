@@ -20,4 +20,6 @@ CLAUDE.md
 .claude
 
 server/service-account.json
-server/service-account.json
+server/harmony.db
+dashboard/dashboard.db
+dashboard/.env
