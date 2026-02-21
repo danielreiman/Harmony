@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Harmony — Sign Up</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #0a0a0a;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.top-aura {
+  position: fixed;
+  top: 12%;
+  left: 50%;
+  width: 420px;
+  height: 420px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(120,170,255,0.30) 0%, rgba(120,170,255,0.14) 40%, rgba(120,170,255,0.0) 72%);
+  filter: blur(40px);
+  pointer-events: none;
+}
+
+.waiting-stage {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  pointer-events: none;
+  background: radial-gradient(1200px 700px at 50% 10%, rgba(255,255,255,0.08), rgba(10,10,10,0.96));
+  filter: blur(0.3px);
+}
+
+.waiting-dots {
+  display: flex;
+  gap: 12px;
+}
+
+.waiting-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.38);
+  animation: pulse 1.3s infinite ease-in-out;
+}
+
+.waiting-dot:nth-child(2) { animation-delay: 0.16s; }
+.waiting-dot:nth-child(3) { animation-delay: 0.32s; }
+
+  pulse {
+  0%, 80%, 100% { opacity: 0.35; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-3px); }
+}
+
+.modal {
+  position: relative;
+  z-index: 10;
+  width: 430px;
+  background: rgba(30, 30, 30, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 28px;
+  overflow: hidden;
+  box-shadow: 0 32px 90px rgba(0, 0, 0, 0.58), 0 12px 28px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.modal-image {
+  position: relative;
+  height: 230px;
+  margin: 12px;
+  border-radius: 22px;
+  overflow: hidden;
+}
+
+.modal-image .bg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.modal-image .icon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 68px;
+  height: 68px;
+  object-fit: contain;
+  filter: none;
+}
+
+.brand-badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.modal-body {
+  padding: 22px 28px 28px;
+}
+
+h1 {
+  font-size: 21px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.03em;
+  margin-bottom: 5px;
+}
+
+.subtitle {
+  font-size: 13px;
+  color: #555;
+  margin-bottom: 22px;
+}
+
+.field {
+  margin-bottom: 13px;
+}
+
+label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: #555;
+  margin-bottom: 7px;
+}
+
+.input-wrap { position: relative; }
+
+input {
+  width: 100%;
+  padding: 15px 16px;
+  border: 1px solid #1e1e1e;
+  border-radius: 12px;
+  background: #0d0d0d;
+  color: #e0e0e0;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+input::placeholder { color: #2a2a2a; }
+input:focus { border-color: #333; }
+
+.input-wrap input { padding-right: 40px; }
+
+.toggle-pw {
+  position: absolute;
+  right: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+  color: #333;
+  padding: 0;
+  width: auto;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  transition: color 0.15s;
+}
+.toggle-pw:hover { color: #777; background: none; }
+
+.caps-warning {
+  font-size: 12px;
+  color: #c97a10;
+  margin-top: 6px;
+  display: none;
+}
+
+.error-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 50, 50, 0.06);
+  border: 1px solid rgba(255, 50, 50, 0.18);
+  border-radius: 12px;
+  padding: 10px 13px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  color: #f77;
+}
+
+button[type="submit"] {
+  width: 100%;
+  padding: 15px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: #fff;
+  color: #000;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 16px;
+  letter-spacing: 0.01em;
+  transition: background 0.15s, transform 0.1s;
+}
+button[type="submit"]:hover { background: #e8e8e8; }
+button[type="submit"]:active { transform: scale(0.99); background: #d8d8d8; }
+
+.modal-footer {
+  text-align: center;
+  font-size: 13px;
+  color: #3a3a3a;
+  margin-top: 16px;
+}
+.modal-footer a { color: #666; text-decoration: none; transition: color 0.15s; }
+.modal-footer a:hover { color: #fff; }
+</style>
+</head>
+<body>
+
+<div class="top-aura" aria-hidden="true"></div>
+
+<div class="waiting-stage" aria-hidden="true">
+  <div class="waiting-dots">
+    <div class="waiting-dot"></div>
+    <div class="waiting-dot"></div>
+    <div class="waiting-dot"></div>
+  </div>
+</div>
+
+<div class="modal">
+  <div class="modal-image">
+    <img class="bg" src="/static/img1.png" alt="">
+    <img class="icon" src="/static/icon.png" alt="Harmony">
+    <div class="brand-badge">Harmony</div>
+  </div>
+
+  <div class="modal-body">
+    <h1>Create account</h1>
+    <p class="subtitle">Join Harmony. Get started in seconds.</p>
+
+    {% if error %}
+    <div class="error-box">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      {{ error }}
+    </div>
+    {% endif %}
+
+    <form method="POST" action="/signup">
+      <div class="field">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" placeholder="jane_doe" required autofocus>
+      </div>
+
+      <div class="field">
+        <label for="password">Password</label>
+        <div class="input-wrap">
+          <input type="password" id="password" name="password" placeholder="Min. 6 characters" required>
+          <button type="button" class="toggle-pw" onclick="togglePw('password', this)" aria-label="Toggle visibility">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+        <div class="caps-warning" id="caps-warning">⇪ Caps Lock is on</div>
+      </div>
+
+      <div class="field">
+        <label for="confirm">Confirm Password</label>
+        <div class="input-wrap">
+          <input type="password" id="confirm" name="confirm" placeholder="Repeat your password" required>
+          <button type="button" class="toggle-pw" onclick="togglePw('confirm', this)" aria-label="Toggle visibility">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <button type="submit">Create account</button>
+    </form>
+
+    <div class="modal-footer">
+      Already have an account? <a href="/login">Sign in</a>
+    </div>
+  </div>
+</div>
+
+<script>
+function togglePw(inputId, btn) {
+  const input = document.getElementById(inputId);
+  const isHidden = input.type === 'password';
+  input.type = isHidden ? 'text' : 'password';
+  btn.style.color = isHidden ? '#888' : '#333';
+}
+
+document.getElementById('password').addEventListener('keydown', function(e) {
+  const w = document.getElementById('caps-warning');
+  if (w) w.style.display = e.getModifierState('CapsLock') ? 'block' : 'none';
+});
+</script>
+</body>
+</html>

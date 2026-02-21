@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Harmony</title>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #1e1e1e;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Dashboard background replica ── */
+.dash-bg {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  filter: blur(5px);
+  transform: scale(1.04);
+  pointer-events: none;
+  user-select: none;
+}
+
+.dash-card {
+  background: #2a2a2a;
+  border: 1px solid #2f2f2f;
+  border-radius: 20px;
+  padding: 72px 40px 40px;
+  width: 560px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.dash-logo {
+  width: 120px;
+  height: 120px;
+  object-fit: contain;
+  margin-bottom: 24px;
+}
+
+.dash-title {
+  font-size: 32px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.02em;
+  margin-bottom: 16px;
+}
+
+.dash-subtitle {
+  font-size: 15px;
+  color: #a6a6a6;
+  line-height: 1.5;
+  max-width: 340px;
+}
+
+.dash-dots {
+  display: flex;
+  gap: 6px;
+  margin-top: 48px;
+  margin-bottom: 16px;
+  justify-content: center;
+}
+
+.dash-dot {
+  width: 8px;
+  height: 8px;
+  background: #a6a6a6;
+  border-radius: 50%;
+  opacity: 0.4;
+  animation: dashPulse 1.4s infinite ease-in-out;
+}
+
+.dash-dot:nth-child(2) { animation-delay: 0.2s; }
+.dash-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes dashPulse {
+  0%, 80%, 100% { opacity: 0.3; }
+  40% { opacity: 1; }
+}
+
+.dash-waiting-text {
+  font-size: 15px;
+  font-weight: 500;
+  color: #a6a6a6;
+}
+
+/* ── Dim overlay over the blurred bg ── */
+.dim {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 10, 10, 0.65);
+  pointer-events: none;
+}
+
+/* ── Auth card ── */
+.modal-wrap {
+  position: relative;
+  z-index: 10;
+}
+
+.card-aura {
+  position: absolute;
+  top: -70px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 400px;
+  height: 380px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(120,170,255,0.24) 0%, rgba(120,170,255,0.09) 44%, transparent 72%);
+  filter: blur(52px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.modal {
+  position: relative;
+  z-index: 1;
+  width: 430px;
+  background: rgba(22, 22, 22, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 28px;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 8px 24px rgba(0, 0, 0, 0.5),
+    0 32px 72px rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
+.modal-image {
+  position: relative;
+  height: 220px;
+  margin: 12px 12px 0;
+  border-radius: 20px;
+  overflow: hidden;
+}
+
+.modal-image .bg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.modal-image .icon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+}
+
+.brand-badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.50);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.modal-body {
+  padding: 26px 30px 30px;
+}
+
+.panel.hidden { display: none; }
+
+h1 {
+  font-size: 20px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.03em;
+  margin-bottom: 6px;
+}
+
+.subtitle {
+  font-size: 13px;
+  color: #4a4a4a;
+  margin-bottom: 24px;
+  line-height: 1.5;
+}
+
+.field { margin-bottom: 14px; }
+
+.field-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+label {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #4a4a4a;
+  margin-bottom: 8px;
+  letter-spacing: 0.01em;
+}
+
+.field-header label { margin-bottom: 0; }
+
+.forgot {
+  font-size: 11.5px;
+  color: #333;
+  text-decoration: none;
+  transition: color 0.15s;
+  cursor: pointer;
+}
+.forgot:hover { color: #888; }
+
+.input-wrap { position: relative; }
+
+input {
+  width: 100%;
+  padding: 13px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #ddd;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+input::placeholder { color: #2a2a2a; }
+input:focus {
+  border-color: rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.input-wrap input { padding-right: 42px; }
+
+.toggle-pw {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #2e2e2e;
+  padding: 0;
+  width: auto;
+  display: flex;
+  align-items: center;
+  transition: color 0.15s;
+}
+.toggle-pw:hover { color: #666; background: none; }
+
+.caps-warning {
+  font-size: 12px;
+  color: #c97a10;
+  margin-top: 6px;
+  display: none;
+}
+
+.error-box {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 50, 50, 0.06);
+  border: 1px solid rgba(255, 50, 50, 0.16);
+  border-radius: 12px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: #f77;
+}
+.error-box.visible { display: flex; }
+
+button[type="submit"] {
+  width: 100%;
+  padding: 14px 16px;
+  border: none;
+  border-radius: 12px;
+  background: #fff;
+  color: #000;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 20px;
+  letter-spacing: 0.01em;
+  transition: background 0.15s, transform 0.1s, opacity 0.15s;
+}
+button[type="submit"]:hover { background: #e8e8e8; }
+button[type="submit"]:active { transform: scale(0.99); background: #d8d8d8; }
+button[type="submit"]:disabled { opacity: 0.4; cursor: default; }
+
+.modal-footer {
+  text-align: center;
+  font-size: 13px;
+  color: #333;
+  margin-top: 20px;
+}
+.modal-footer a {
+  color: #555;
+  text-decoration: none;
+  transition: color 0.15s;
+  cursor: pointer;
+}
+.modal-footer a:hover { color: #ccc; }
+.shutdown-btn {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 200;
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  border: 1px solid #2f2f2f;
+  background: #2a2a2a;
+  color: #ffffff;
+  box-shadow: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.shutdown-btn:hover {
+  border-color: #fca5a5;
+  background: rgba(252, 165, 165, 0.1);
+  color: #dc2626;
+}
+.shutdown-btn i {
+  width: 18px;
+  height: 18px;
+}
+</style>
+</head>
+<body>
+
+<button class="shutdown-btn" onclick="stopServer()" title="Shutdown dashboard">
+  <i data-lucide="power"></i>
+</button>
+
+<!-- Server unavailable overlay -->
+<div id="serverDown" style="display:none;position:fixed;inset:0;z-index:99998;align-items:center;justify-content:center;padding:40px 20px;overflow-y:auto;background:#1e1e1e;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;-webkit-font-smoothing:antialiased;">
+  <div style="background:transparent;border:none;box-shadow:none;padding:72px 40px 40px;max-width:560px;width:100%;text-align:center;">
+    <div style="font-size:36px;font-weight:700;color:#ffffff;margin-bottom:16px;letter-spacing:-0.02em;line-height:1.2;">Server unavailable</div>
+    <div style="font-size:15px;color:#a6a6a6;font-weight:500;line-height:1.5;margin-bottom:32px;">
+      Cannot reach the Harmony server. Make sure it is running.
+      <div style="display:flex;gap:16px;justify-content:center;margin-top:24px;">
+        <button onclick="checkServer()" style="padding:14px 28px;border-radius:28px;border:1px solid #2f2f2f;background:#2a2a2a;color:#ffffff;font-size:14px;font-weight:600;cursor:pointer;transition:background 0.2s;display:flex;align-items:center;gap:10px;font-family:inherit;" onmouseover="this.style.background='#353535'" onmouseout="this.style.background='#2a2a2a'">
+          <i data-lucide="refresh-cw" style="width:18px;height:18px;"></i>Retry
+        </button>
+        <a href="https://github.com/danielreiman/Harmony" target="_blank" style="padding:14px 28px;border-radius:28px;border:1px solid #2f2f2f;background:#2a2a2a;color:#ffffff;font-size:14px;font-weight:600;cursor:pointer;transition:background 0.2s;display:flex;align-items:center;gap:10px;text-decoration:none;" onmouseover="this.style.background='#353535'" onmouseout="this.style.background='#2a2a2a'">
+          <svg viewBox="0 0 16 16" style="width:18px;height:18px;fill:currentColor;"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>View on GitHub
+        </a>
+      </div>
+      <div style="margin-top:32px;color:rgba(255,255,255,0.6);font-size:13px;">To start: <code style="background:rgba(255,255,255,0.1);padding:4px 8px;border-radius:4px;">python server/server.py</code></div>
+    </div>
+  </div>
+</div>
+
+<!-- Goodbye overlay — carbon theme values of connectionOverlay.goodbye -->
+<div id="loginGoodbye" style="display:none;position:fixed;inset:0;z-index:99999;align-items:center;justify-content:center;padding:40px 20px;overflow-y:auto;background:#1e1e1e;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;-webkit-font-smoothing:antialiased;">
+  <div style="background:transparent;border:none;box-shadow:none;padding:72px 40px 40px;max-width:560px;width:100%;text-align:center;">
+    <div style="font-size:36px;font-weight:700;color:#ffffff;margin-bottom:16px;letter-spacing:-0.02em;line-height:1.2;">See you next time!</div>
+    <div style="font-size:15px;color:#a6a6a6;font-weight:500;line-height:1.5;margin-bottom:32px;">
+      Dashboard has been stopped.
+      <div style="display:flex;gap:16px;justify-content:center;margin-top:24px;">
+        <button onclick="window.open('','_self').close();window.close();" style="padding:14px 28px;border-radius:28px;border:1px solid #2f2f2f;background:#2a2a2a;color:#ffffff;font-size:14px;font-weight:600;cursor:pointer;transition:background 0.2s;display:flex;align-items:center;gap:10px;font-family:inherit;" onmouseover="this.style.background='#353535'" onmouseout="this.style.background='#2a2a2a'">
+          <i data-lucide="x" style="width:18px;height:18px;"></i>Close tab
+        </button>
+        <a href="https://github.com/danielreiman/Harmony" target="_blank" style="padding:14px 28px;border-radius:28px;border:1px solid #2f2f2f;background:#2a2a2a;color:#ffffff;font-size:14px;font-weight:600;cursor:pointer;transition:background 0.2s;display:flex;align-items:center;gap:10px;text-decoration:none;" onmouseover="this.style.background='#353535'" onmouseout="this.style.background='#2a2a2a'">
+          <svg viewBox="0 0 16 16" style="width:18px;height:18px;fill:currentColor;"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>View on GitHub
+        </a>
+      </div>
+      <div style="margin-top:32px;color:rgba(255,255,255,0.6);font-size:13px;">To restart: <code style="background:rgba(255,255,255,0.1);padding:4px 8px;border-radius:4px;">python dashboard/app.py</code></div>
+    </div>
+  </div>
+</div>
+
+<!-- Dashboard waiting-for-agents background (blurred) -->
+<div class="dash-bg" aria-hidden="true">
+  <div class="dash-card">
+    <img class="dash-logo" src="/static/icon.png" alt="">
+    <div class="dash-title">Harmony</div>
+    <div class="dash-subtitle">Distributed automation system for parallel task execution across multiple computers</div>
+    <div class="dash-dots">
+      <div class="dash-dot"></div>
+      <div class="dash-dot"></div>
+      <div class="dash-dot"></div>
+    </div>
+    <div class="dash-waiting-text">Waiting for agents...</div>
+  </div>
+</div>
+<div class="dim" aria-hidden="true"></div>
+
+<!-- Auth card -->
+<div class="modal-wrap">
+  <div class="card-aura" aria-hidden="true"></div>
+
+  <div class="modal">
+    <div class="modal-image">
+      <img class="bg" src="/static/img1.png" alt="">
+      <img class="icon" src="/static/icon.png" alt="Harmony">
+      <div class="brand-badge">Harmony</div>
+    </div>
+
+    <div class="modal-body">
+
+      <!-- Login Panel -->
+      <div class="panel" id="loginPanel">
+        <h1>Sign in</h1>
+        <p class="subtitle">Welcome back. Enter your details below.</p>
+
+        <div class="error-box" id="loginError">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <span id="loginErrorMsg"></span>
+        </div>
+
+        <form id="loginForm">
+          <div class="field">
+            <label for="loginUsername">Username</label>
+            <input type="text" id="loginUsername" name="username" placeholder="jane_doe" required autofocus autocomplete="username">
+          </div>
+
+          <div class="field">
+            <div class="field-header">
+              <label for="loginPassword">Password</label>
+              <a class="forgot">Forgot?</a>
+            </div>
+            <div class="input-wrap">
+              <input type="password" id="loginPassword" name="password" placeholder="••••••••" required autocomplete="current-password">
+              <button type="button" class="toggle-pw" onclick="togglePw('loginPassword', this)" aria-label="Toggle visibility">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
+            <div class="caps-warning" id="loginCaps">⇪ Caps Lock is on</div>
+          </div>
+
+          <button type="submit" id="loginBtn">Continue</button>
+        </form>
+
+        <div class="modal-footer">
+          No account? <a onclick="showPanel('signup')">Create one</a>
+        </div>
+      </div>
+
+      <!-- Signup Panel -->
+      <div class="panel hidden" id="signupPanel">
+        <h1>Create account</h1>
+        <p class="subtitle">Join Harmony. Get started in seconds.</p>
+
+        <div class="error-box" id="signupError">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <span id="signupErrorMsg"></span>
+        </div>
+
+        <form id="signupForm">
+          <div class="field">
+            <label for="signupUsername">Username</label>
+            <input type="text" id="signupUsername" name="username" placeholder="jane_doe" required autocomplete="username">
+          </div>
+
+          <div class="field">
+            <label for="signupPassword">Password</label>
+            <div class="input-wrap">
+              <input type="password" id="signupPassword" name="password" placeholder="Min. 6 characters" required autocomplete="new-password">
+              <button type="button" class="toggle-pw" onclick="togglePw('signupPassword', this)" aria-label="Toggle visibility">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
+            <div class="caps-warning" id="signupCaps">⇪ Caps Lock is on</div>
+          </div>
+
+          <div class="field">
+            <label for="signupConfirm">Confirm Password</label>
+            <div class="input-wrap">
+              <input type="password" id="signupConfirm" name="confirm" placeholder="Repeat your password" required autocomplete="new-password">
+              <button type="button" class="toggle-pw" onclick="togglePw('signupConfirm', this)" aria-label="Toggle visibility">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <button type="submit" id="signupBtn">Create account</button>
+        </form>
+
+        <div class="modal-footer">
+          Already have an account? <a onclick="showPanel('login')">Sign in</a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+function showPanel(name) {
+  document.getElementById('loginPanel').classList.toggle('hidden', name !== 'login');
+  document.getElementById('signupPanel').classList.toggle('hidden', name !== 'signup');
+  clearErrors();
+  setTimeout(() => document.getElementById(name === 'login' ? 'loginUsername' : 'signupUsername').focus(), 10);
+}
+
+function clearErrors() {
+  document.getElementById('loginError').classList.remove('visible');
+  document.getElementById('signupError').classList.remove('visible');
+}
+
+function showError(panelName, msg) {
+  document.getElementById(panelName + 'ErrorMsg').textContent = msg;
+  document.getElementById(panelName + 'Error').classList.add('visible');
+}
+
+function togglePw(inputId, btn) {
+  const input = document.getElementById(inputId);
+  const isHidden = input.type === 'password';
+  input.type = isHidden ? 'text' : 'password';
+  btn.style.color = isHidden ? '#666' : '#2e2e2e';
+}
+
+['loginPassword', 'signupPassword'].forEach(id => {
+  const capsId = id === 'loginPassword' ? 'loginCaps' : 'signupCaps';
+  document.getElementById(id).addEventListener('keydown', function(e) {
+    const w = document.getElementById(capsId);
+    if (w) w.style.display = e.getModifierState('CapsLock') ? 'block' : 'none';
+  });
+});
+
+async function submitForm(url, payload, panelName, btnId) {
+  const btn = document.getElementById(btnId);
+  btn.disabled = true;
+  clearErrors();
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data.error) {
+      showError(panelName, data.error);
+    } else {
+      window.location.href = '/';
+    }
+  } catch (_) {
+    showError(panelName, 'Could not connect to server');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function stopServer() {
+  document.getElementById('loginGoodbye').style.display = 'flex';
+  lucide.createIcons();
+  await fetch('/api/dashboard/stop', { method: 'POST' }).catch(() => {});
+}
+
+let serverDownPolling = null;
+
+async function checkServer() {
+  try {
+    const res = await fetch('/api/status');
+    const data = await res.json();
+    if (data.ok) {
+      document.getElementById('serverDown').style.display = 'none';
+      if (serverDownPolling) {
+        clearInterval(serverDownPolling);
+        serverDownPolling = null;
+      }
+    } else {
+      showServerDown();
+    }
+  } catch (_) {
+    showServerDown();
+  }
+}
+
+function showServerDown() {
+  document.getElementById('serverDown').style.display = 'flex';
+  lucide.createIcons();
+  if (!serverDownPolling) {
+    serverDownPolling = setInterval(checkServer, 5000);
+  }
+}
+
+lucide.createIcons();
+checkServer();
+
+document.getElementById('loginForm').addEventListener('submit', function(e) {
+  e.preventDefault();
+  submitForm('/login', {
+    username: document.getElementById('loginUsername').value,
+    password: document.getElementById('loginPassword').value
+  }, 'login', 'loginBtn');
+});
+
+document.getElementById('signupForm').addEventListener('submit', function(e) {
+  e.preventDefault();
+  submitForm('/signup', {
+    username: document.getElementById('signupUsername').value,
+    password: document.getElementById('signupPassword').value,
+    confirm: document.getElementById('signupConfirm').value
+  }, 'signup', 'signupBtn');
+});
+</script>
+</body>
+</html>

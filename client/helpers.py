@@ -1,132 +1,149 @@
-import pyautogui, json, time, socket, pyperclip, platform
+import json
+import socket
+import time
+import pyautogui
 
-def discover():
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.bind(("", 3030))
+BROADCAST_PORT = 3030
+MOUSE_MOVE_DURATION = 0.35
+TYPE_INTERVAL = 0.02
+HOTKEY_INTERVAL = 0.04
+DOUBLE_CLICK_PAUSE = 0.12
+SCROLL_AMOUNT = 360
+WAIT_DURATION = 0.35
 
-    while True:
-        msg, addr = s.recvfrom(1024)
-        if msg == b"HARMONY_SERVER":
-            return addr[0]
+ACTIONS_REQUIRING_COORDINATES = {"mouse_move", "left_click", "double_click", "right_click", "click"}
 
-def normalize_coordinate(coordinate, viewport):
+
+def discover(timeout: int = 30) -> str:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("", BROADCAST_PORT))
+    sock.settimeout(timeout)
+    try:
+        while True:
+            packet, sender_address = sock.recvfrom(1024)
+            packet_is_harmony_beacon = packet == b"HARMONY_SERVER"
+            if packet_is_harmony_beacon:
+                return sender_address[0]
+    except socket.timeout:
+        raise RuntimeError(f"No Harmony server found within {timeout}s")
+    finally:
+        sock.close()
+
+
+def _normalize_coordinate(coordinate: list, screen_width: int, screen_height: int) -> tuple[int, int]:
     if coordinate is None or len(coordinate) != 2:
-        raise ValueError("Invalid Coordinate")
+        raise ValueError("Invalid coordinate")
 
-    x, y = coordinate
+    raw_x, raw_y = coordinate
+    clamped_x = max(0, min(1000, raw_x))
+    clamped_y = max(0, min(1000, raw_y))
 
-    x = max(0, min(1000, x))
-    y = max(0, min(1000, y))
+    absolute_x = int((clamped_x / 1000.0) * screen_width)
+    absolute_y = int((clamped_y / 1000.0) * screen_height)
 
-    norm_x = x / 1000.0
-    norm_y = y / 1000.0
+    return absolute_x, absolute_y
 
-    left = viewport["monitor_left"]
-    top = viewport["monitor_top"]
-    width = viewport["display_width"]
-    height = viewport["display_height"]
 
-    abs_x = left + int(norm_x * width)
-    abs_y = top + int(norm_y * height)
-
-    return abs_x, abs_y
-
-def act(step):
+def act(step: dict) -> bool:
     action = step.get("Next Action")
     value = step.get("Value")
     coordinate = step.get("Coordinate")
 
-    viewport = {
-        "monitor_left": 0,
-        "monitor_top": 0,
-        "display_width": pyautogui.size().width,
-        "display_height": pyautogui.size().height,
-    }
+    screen_size = pyautogui.size()
+    screen_coords = None
 
-    coords = None
-    if action in ["mouse_move", "left_click", "double_click", "right_click"]:
-        coords = normalize_coordinate(coordinate, viewport)
+    action_requires_coordinates = action in ACTIONS_REQUIRING_COORDINATES
+    if action_requires_coordinates:
+        screen_coords = _normalize_coordinate(coordinate, screen_size.width, screen_size.height)
 
     try:
-        if coords and action in {"mouse_move", "left_click", "double_click", "right_click"}:
-            pyautogui.moveTo(coords[0], coords[1], duration=0.35)
+        if screen_coords:
+            pyautogui.moveTo(screen_coords[0], screen_coords[1], duration=MOUSE_MOVE_DURATION)
 
         if action == "mouse_move":
             pass
 
-        elif action == "left_click":
+        elif action in ("left_click", "click"):
             pyautogui.click(button="left")
 
         elif action == "double_click":
             pyautogui.click()
-            time.sleep(0.12)
+            time.sleep(DOUBLE_CLICK_PAUSE)
             pyautogui.click()
 
-        elif action == "click":
+        elif action == "right_click":
             pyautogui.click(button="right")
 
         elif action == "type":
-            pyautogui.write(value, interval=0.02)
+            pyautogui.write(value, interval=TYPE_INTERVAL)
 
         elif action == "press_key":
             pyautogui.press(value)
 
         elif action == "hotkey":
-            if isinstance(value, str):
-                value = json.loads(value) # If value is a JSON string, parse it into a Python object
-            pyautogui.hotkey(*value, interval=0.04)
+            key_combination = json.loads(value) if isinstance(value, str) else value
+            pyautogui.hotkey(*key_combination, interval=HOTKEY_INTERVAL)
 
         elif action == "scroll_up":
-            pyautogui.scroll(360)
+            pyautogui.scroll(SCROLL_AMOUNT)
 
         elif action == "scroll_down":
-            pyautogui.scroll(-360)
+            pyautogui.scroll(-SCROLL_AMOUNT)
 
         elif action == "wait":
-            time.sleep(0.35)
+            time.sleep(WAIT_DURATION)
 
-        elif action in [None, "None"]:
+        elif action in (None, "None"):
             return True
 
         else:
-            print("Unknown action:", action)
+            print(f"[Client] Unknown action: {action}")
             return False
 
         return True
 
-    except Exception as e:
-        print(f"[CLIENT] Execution error for action '{action}': {e}")
+    except Exception as error:
+        print(f"[Client] Action '{action}' failed: {error}")
         return False
 
 
-def _recv_exact(sock, size):
-    data = b""
-    while len(data) < size:
-        chunk = sock.recv(size - len(data))
+def _recv_exact(sock: socket.socket, size: int) -> bytes | None:
+    received = b""
+    while len(received) < size:
+        chunk = sock.recv(size - len(received))
         if not chunk:
             return None
-        data += chunk
-    return data
+        received += chunk
+    return received
 
 
-def send_json(sock, obj):
-    data = json.dumps(obj).encode()
-    sock.sendall(len(data).to_bytes(8, "big"))
-    sock.sendall(data)
+def send_json(sock: socket.socket, obj: dict):
+    encoded = json.dumps(obj).encode()
+    length_prefix = len(encoded).to_bytes(8, "big")
+    sock.sendall(length_prefix)
+    sock.sendall(encoded)
 
-def recv_json(sock):
+
+def recv_json(sock: socket.socket) -> dict | None:
     size_bytes = _recv_exact(sock, 8)
-    if not size_bytes:
+    if size_bytes is None:
         return None
-    size = int.from_bytes(size_bytes, "big")
-    if size <= 0:
-        return None
-    data = _recv_exact(sock, size)
-    return json.loads(data.decode()) if data else None
 
-def send_file(sock, path):
+    message_size = int.from_bytes(size_bytes, "big")
+    if message_size <= 0:
+        return None
+
+    data = _recv_exact(sock, message_size)
+    if data is None:
+        return None
+
+    return json.loads(data.decode())
+
+
+def send_file(sock: socket.socket, path: str):
     with open(path, "rb") as f:
-        data = f.read()
-
-    sock.sendall(len(data).to_bytes(8, "big"))
-    sock.sendall(data)
+        file_bytes = f.read()
+    length_prefix = len(file_bytes).to_bytes(8, "big")
+    sock.sendall(length_prefix)
+    sock.sendall(file_bytes)

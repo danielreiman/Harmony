@@ -2,86 +2,81 @@ import os
 import socket
 import threading
 import uuid
-from helpers import broadcast, get_lan_ip, send
+from helpers import broadcast, get_lan_ip
 from agent import Agent
 from manager import Manager
-from dashboard import init_dashboard, run_dashboard
+from api import run_api
+from database import init_db, register_agent
 
 HOST = "0.0.0.0"
-PORT = 1222
-DASHBOARD_PORT = 1234
-RUNTIME_DIR = "./runtime"
-MODEL = "qwen3-vl:235b-instruct-cloud"
-
-DEFAULT_TASKS = []
+AGENT_PORT = 1222
+API_PORT = 1223
+RUNTIME_DIR = os.path.join(os.path.dirname(__file__), "runtime")
+AI_MODEL = "qwen3-vl:235b-instruct-cloud"
 
 
 def main():
-    agents = {}
-    lock = threading.Lock()
-    tasks = list(DEFAULT_TASKS)
-
     os.makedirs(RUNTIME_DIR, exist_ok=True)
+    init_db()
+
+    agents = {}
+    agents_lock = threading.Lock()
 
     print("=" * 60)
     print("Harmony Server")
     print("=" * 60)
     print()
 
-    # Start LAN discovery broadcast
     broadcast_thread = threading.Thread(target=broadcast, daemon=True)
     broadcast_thread.start()
     print("[✓] LAN discovery broadcast started (UDP port 3030)")
 
-    # Start task manager
-    manager = Manager(agents, lock, tasks)
+    manager = Manager(agents, agents_lock)
     manager_thread = threading.Thread(target=manager.activate, daemon=True)
     manager_thread.start()
     print("[✓] Task manager started")
 
-    # Start dashboard with shared state
-    init_dashboard(agents, lock, tasks)
-    dashboard_thread = threading.Thread(
-        target=run_dashboard,
-        kwargs={"host": HOST, "port": DASHBOARD_PORT},
+    api_thread = threading.Thread(
+        target=run_api,
+        kwargs={"host": HOST, "port": API_PORT},
         daemon=True
     )
-    dashboard_thread.start()
+    api_thread.start()
+
     lan_ip = get_lan_ip()
-    print(f"[✓] Dashboard started on http://localhost:{DASHBOARD_PORT}")
-    print(f"[✓] Dashboard LAN URL: http://{lan_ip}:{DASHBOARD_PORT}")
+    print(f"[✓] API started on http://localhost:{API_PORT}")
+    print(f"[✓] API LAN URL: http://{lan_ip}:{API_PORT}")
 
-    # Start TCP server
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind((HOST, PORT))
-    sock.listen()
-
-    print(f"[✓] Server listening on {HOST}:{PORT}")
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server_socket.bind((HOST, AGENT_PORT))
+    server_socket.listen()
+    print(f"[✓] Server listening on {HOST}:{AGENT_PORT}")
     print()
     print("Waiting for clients...")
     print()
 
     try:
         while True:
-            conn, addr = sock.accept()
-
+            client_conn, client_addr = server_socket.accept()
             agent_id = f"agent-{uuid.uuid4().hex[:6]}"
-            print(f"[Server] Connected: {agent_id} from {addr[0]}")
+            print(f"[Server] Connected: {agent_id} from {client_addr[0]}")
 
-            agent = Agent(id=agent_id, model=MODEL, conn=conn)
+            agent = Agent(id=agent_id, model=AI_MODEL, conn=client_conn)
+
+            with agents_lock:
+                agents[agent_id] = agent
+
+            register_agent(agent_id)
 
             agent_thread = threading.Thread(target=agent.activate, daemon=True)
             agent_thread.start()
-
-            with lock:
-                agents[agent_id] = agent
 
     except KeyboardInterrupt:
         print()
         print("[Server] Shutting down...")
     finally:
-        sock.close()
+        server_socket.close()
 
 
 if __name__ == "__main__":
