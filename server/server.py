@@ -2,7 +2,7 @@ import os
 import socket
 import threading
 import uuid
-from helpers import broadcast, get_lan_ip
+from networking import broadcast, local_ip
 from agent import Agent
 from manager import Manager
 from api import run_api
@@ -16,6 +16,7 @@ AI_MODEL = "qwen3-vl:235b-instruct-cloud"
 
 
 def main():
+    """Initializes all server subsystems and accepts incoming agent connections in a loop."""
     os.makedirs(RUNTIME_DIR, exist_ok=True)
     init_db()
 
@@ -43,7 +44,7 @@ def main():
     )
     api_thread.start()
 
-    lan_ip = get_lan_ip()
+    lan_ip = local_ip()
     print(f"[✓] API started on http://localhost:{API_PORT}")
     print(f"[✓] API LAN URL: http://{lan_ip}:{API_PORT}")
 
@@ -67,7 +68,7 @@ def main():
             with agents_lock:
                 agents[agent_id] = agent
 
-            register_agent(agent_id)
+            register_agent(agent_id)  # no user binding — all agents are shared
 
             agent_thread = threading.Thread(target=agent.activate, daemon=True)
             agent_thread.start()

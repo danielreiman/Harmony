@@ -8,6 +8,7 @@ FILE_CHUNK_SIZE = 4096
 
 
 def broadcast():
+    """Continuously broadcasts a UDP beacon so clients can discover this server on the LAN."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     while True:
@@ -18,7 +19,8 @@ def broadcast():
         time.sleep(1)
 
 
-def get_lan_ip() -> str:
+def local_ip():
+    """Determines the machine's local network IP address for display and routing."""
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             sock.connect(("8.8.8.8", 80))
@@ -30,7 +32,8 @@ def get_lan_ip() -> str:
             return "127.0.0.1"
 
 
-def _recv_exact(conn: socket.socket, byte_count: int) -> bytes | None:
+def _read_exact(conn, byte_count):
+    """Reads an exact number of bytes from the connection, returning None if it closes early."""
     received = b""
     while len(received) < byte_count:
         chunk = conn.recv(byte_count - len(received))
@@ -40,7 +43,8 @@ def _recv_exact(conn: socket.socket, byte_count: int) -> bytes | None:
     return received
 
 
-def send(message: dict, conn: socket.socket) -> bool:
+def send(message, conn):
+    """Sends a JSON message with an 8-byte length prefix, returning True on success."""
     try:
         encoded = json.dumps(message).encode("utf-8")
         message_length = len(encoded).to_bytes(8, "big")
@@ -51,11 +55,12 @@ def send(message: dict, conn: socket.socket) -> bool:
         return False
 
 
-def recv(conn: socket.socket) -> dict | None:
+def recv(conn):
+    """Reads and deserializes a length-prefixed JSON message from the connection."""
     try:
         conn.settimeout(SOCKET_TIMEOUT_SECONDS)
 
-        size_bytes = _recv_exact(conn, 8)
+        size_bytes = _read_exact(conn, 8)
         if size_bytes is None:
             return None
 
@@ -63,7 +68,7 @@ def recv(conn: socket.socket) -> dict | None:
         if message_size <= 0:
             return None
 
-        raw_data = _recv_exact(conn, message_size)
+        raw_data = _read_exact(conn, message_size)
         if raw_data is None:
             return None
 
@@ -79,11 +84,12 @@ def recv(conn: socket.socket) -> dict | None:
         return None
 
 
-def recv_file(destination_path: str, conn: socket.socket) -> bool:
+def receive_file(destination_path, conn):
+    """Receives a length-prefixed file over the connection and writes it to disk, returning True on success."""
     try:
         conn.settimeout(SOCKET_TIMEOUT_SECONDS)
 
-        size_bytes = _recv_exact(conn, 8)
+        size_bytes = _read_exact(conn, 8)
         if size_bytes is None:
             print("[Helpers] Failed to receive file size header")
             return False

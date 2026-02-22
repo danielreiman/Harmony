@@ -16,12 +16,18 @@ let errorCount = 0
 let toastTimeout = null
 let lastToastMessage = null
 let lastToastAt = 0
+let agentToken = ''
 
 const maxErrors = 3
 const THEME_STORAGE_KEY = 'harmonyTheme'
 const DEFAULT_THEME = 'carbon'
 
-const serviceAccountInfo = window.harmonyServiceAccount || { hasKey: false, email: "" }
+let serviceAccountInfo = { hasKey: false, email: "" }
+
+const _storedToken = localStorage.getItem('token')
+if (!_storedToken) {
+  window.location.href = '/login'
+}
 
 
 function normalizeServerBase(raw) {
@@ -92,14 +98,23 @@ initTheme()
 
 
 async function apiFetch(path, options) {
+  if (!options) {
+    options = {}
+  }
+  if (!options.headers) {
+    options.headers = {}
+  }
+  const token = localStorage.getItem('token')
+  if (token) {
+    options.headers['Authorization'] = 'Bearer ' + token
+  }
+
   let lastError = null
   for (const base of apiBases) {
     try {
       const response = await fetch(`${base}${path}`, options)
-      const isUnauthorized = response.status === 401
-      const wasRedirectedToLogin = response.redirected && response.url.includes('/login')
-      const sessionExpired = isUnauthorized || wasRedirectedToLogin
-      if (sessionExpired) {
+      if (response.status === 401) {
+        localStorage.removeItem('token')
         if (!shuttingDown) {
           window.location.href = '/login'
         }
@@ -543,9 +558,10 @@ function switchView(viewName) {
   document.querySelectorAll('.viewToggleBtn').forEach(function(btn) {
     btn.classList.remove('active')
 
-    const isSingleViewBtn = viewName === 'single' && btn.textContent.includes('Single')
+    const isSingleViewBtn     = viewName === 'single'     && btn.textContent.includes('Single')
     const isSupervisorViewBtn = viewName === 'supervisor' && btn.textContent.includes('Supervisor')
-    if (isSingleViewBtn || isSupervisorViewBtn) {
+    const isTasksViewBtn      = viewName === 'tasks'      && btn.textContent.includes('Tasks')
+    if (isSingleViewBtn || isSupervisorViewBtn || isTasksViewBtn) {
       btn.classList.add('active')
     }
   })
@@ -555,17 +571,28 @@ function switchView(viewName) {
   if (viewName === 'single') {
     getElementById("singleView").classList.add('active')
     getElementById("supervisorView").classList.remove('active')
+    getElementById("tasksView").classList.remove('active')
     getElementById("agentDropdown").style.display = 'flex'
     if (promptMeta) promptMeta.style.display = 'none'
     currentView = 'single'
     updatePromptPlaceholder()
-  } else {
+  } else if (viewName === 'supervisor') {
     getElementById("singleView").classList.remove('active')
     getElementById("supervisorView").classList.add('active')
+    getElementById("tasksView").classList.remove('active')
     getElementById("agentDropdown").style.display = 'none'
     if (promptMeta) promptMeta.style.display = 'flex'
     currentView = 'supervisor'
     updateSupervisorGrid()
+    updatePromptPlaceholder()
+  } else if (viewName === 'tasks') {
+    getElementById("singleView").classList.remove('active')
+    getElementById("supervisorView").classList.remove('active')
+    getElementById("tasksView").classList.add('active')
+    getElementById("agentDropdown").style.display = 'none'
+    if (promptMeta) promptMeta.style.display = 'none'
+    currentView = 'tasks'
+    fetchTasksView()
     updatePromptPlaceholder()
   }
 
@@ -581,6 +608,8 @@ function updatePromptPlaceholder() {
     input.placeholder = hasAgentSelected
       ? `Send task to ${currentAgent}...`
       : 'Select an agent first...'
+  } else if (currentView === 'tasks') {
+    input.placeholder = 'Enter task instructions...'
   } else {
     input.placeholder = 'Enter task instructions for all agents...'
   }
@@ -1350,6 +1379,97 @@ function refreshAgent(agentId) {
 }
 
 
+function formatRelativeTime(unixSeconds) {
+  const diffSeconds = Math.floor(Date.now() / 1000) - unixSeconds
+  if (diffSeconds < 60)  return 'just now'
+  if (diffSeconds < 3600) return `${Math.floor(diffSeconds / 60)} min ago`
+  if (diffSeconds < 86400) return `${Math.floor(diffSeconds / 3600)} hr ago`
+  if (diffSeconds < 172800) return 'yesterday'
+  return `${Math.floor(diffSeconds / 86400)} days ago`
+}
+
+
+async function fetchTasksView() {
+  try {
+    const [tasksResponse, logsResponse] = await Promise.all([
+      apiFetch('/api/tasks', { cache: 'no-store' }),
+      apiFetch('/api/task-logs', { cache: 'no-store' })
+    ])
+
+    if (tasksResponse.ok) {
+      const tasks = await tasksResponse.json()
+      renderTasksList(tasks)
+    }
+
+    if (logsResponse.ok) {
+      const logs = await logsResponse.json()
+      renderTaskLogsList(logs)
+    }
+  } catch (fetchError) {
+    console.warn('Tasks view fetch failed:', fetchError.message)
+  }
+}
+
+
+function renderTasksList(tasks) {
+  const container = getElementById('tasksList')
+  if (!tasks || tasks.length === 0) {
+    container.innerHTML = '<div class="tasksEmptyState">No tasks yet</div>'
+    return
+  }
+
+  container.innerHTML = tasks.map(function(task) {
+    const statusClass = task.status || 'queued'
+    const agentText   = task.assigned_agent ? `Agent: ${task.assigned_agent}` : ''
+    const timeText    = task.created_at ? formatRelativeTime(task.created_at) : ''
+    const taskLabel   = stripTaskMetadata(task.task) || task.task || ''
+
+    return `
+      <div class="taskItem">
+        <div class="taskItemText">${escapeHtml(taskLabel)}</div>
+        <div class="taskItemMeta">
+          <span class="taskItemStatus ${statusClass}">${statusClass}</span>
+          ${agentText ? `<span>${escapeHtml(agentText)}</span>` : ''}
+          ${timeText  ? `<span>${timeText}</span>` : ''}
+        </div>
+      </div>
+    `
+  }).join('')
+}
+
+
+function renderTaskLogsList(logs) {
+  const container = getElementById('taskLogsList')
+  if (!logs || logs.length === 0) {
+    container.innerHTML = '<div class="tasksEmptyState">No logs yet</div>'
+    return
+  }
+
+  container.innerHTML = logs.map(function(log) {
+    const timeText = log.created_at ? formatRelativeTime(log.created_at) : ''
+    const detail   = log.detail || ''
+
+    return `
+      <div class="logItem">
+        <span class="logItemAction">${escapeHtml(log.action || '')}</span>
+        <span class="logItemDetail">${escapeHtml(detail)}</span>
+        ${timeText ? `<span class="logItemTime">${timeText}</span>` : ''}
+      </div>
+    `
+  }).join('')
+}
+
+
+function escapeHtml(text) {
+  if (!text) return ''
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+
 function showLoading() {
   getElementById("agentValue").textContent = "Loading..."
   getElementById("statusCap").textContent = "Connecting..."
@@ -1374,6 +1494,34 @@ function ensureLucideReady(remainingRetries) {
 }
 
 
+async function fetchAgentToken() {
+  try {
+    const resp = await apiFetch('/api/agent-token')
+    if (!resp.ok) return
+    const data = await resp.json()
+    agentToken = data.agent_token || ''
+    const el = getElementById('agentTokenValue')
+    if (el) el.textContent = agentToken || '(unavailable)'
+  } catch (e) { /* silent */ }
+}
+
+function copyAgentToken() {
+  const cmd = 'python client/client.py --token ' + agentToken
+  navigator.clipboard.writeText(cmd)
+    .then(function() { showToast('Launch command copied', 'success') })
+    .catch(function() { showToast('Copy failed', 'error') })
+}
+
+
+async function fetchServiceAccount() {
+  try {
+    const res = await apiFetch('/api/service-account')
+    const data = await res.json()
+    serviceAccountInfo = { hasKey: data.has_key || false, email: data.email || "" }
+  } catch (_) {}
+}
+
+
 async function initialize() {
   if (isInitialized) return
 
@@ -1381,6 +1529,8 @@ async function initialize() {
 
   try {
     await fetchAgents()
+    fetchAgentToken()
+    fetchServiceAccount()
 
     if (currentAgent) {
       await Promise.all([updateState(), refreshScreen()])
@@ -1431,3 +1581,8 @@ scheduleUpdate(function() {
   }
 }, 1500)
 scheduleUpdate(checkServerStatus, 5000)
+scheduleUpdate(function() {
+  if (currentView === 'tasks') {
+    return fetchTasksView()
+  }
+}, 5000)

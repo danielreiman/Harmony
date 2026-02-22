@@ -136,7 +136,6 @@ When the task is finished:
 }
 """
 
-
 TASK_SPLIT_PROMPT = """
 Split the given task into smaller, independent subtasks.
 Return a JSON array of subtask strings.

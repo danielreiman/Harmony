@@ -15,8 +15,8 @@
 - [X] Remove the tool buttons under each agent in the Supervisor view when no task is assigned.
 
 ### Upcoming
-- [ ] Review the final response, request fixes if needed, and present the approved result to the user.
-- [ ] Add authentication for the dashboard/server.
-- [ ] Introduce a SQL database for the server.
-- [ ] Decouple the dashboard so it can run independently of the server machine.
+- [X] Add authentication for the dashboard/server.
+- [X] Introduce a SQL database for the server.
+- [X] Decouple the dashboard so it can run independently of the server machine.
 - [ ] Create a reliable research prompt for agents.
+- [ ] Review the final response, request fixes if needed, and present the approved result to the user.

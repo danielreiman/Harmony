@@ -8,7 +8,7 @@ server/.env
 
 # Runtime generated files and folders
 server/runtime/
-client/runtime/
+agent-client/runtime/
 
 # Python cache and others
 __pycache__/
@@ -21,5 +21,7 @@ CLAUDE.md
 
 server/service-account.json
 server/harmony.db
-dashboard/dashboard.db
-dashboard/.env
+server/harmony.db-wal
+server/harmony.db-shm
+admin-client/dashboard.db
+admin-client/.env

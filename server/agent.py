@@ -2,20 +2,24 @@ import json
 import os
 import threading
 import time
-from ollama import Client
-import config
-from google_docs import DocManager
-from prompts import RESEARCH_PROMPT, TASK_PROMPT
-from helpers import send, recv, recv_file
-import database as db
 
-RUNTIME_DIR = os.path.join(os.path.dirname(__file__), "runtime")
+from ollama import Client
+
+import config
+import database as db
+from google_docs import DocManager
+from networking import send, recv, receive_file
+from prompts import RESEARCH_PROMPT, TASK_PROMPT
+
+
 MAX_HISTORY_LENGTH = 30
 MAX_CYCLES_IN_SAME_PHASE = 2
+RUNTIME_DIR = os.path.join(os.path.dirname(__file__), "runtime")
 
 
 class Agent:
-    def __init__(self, id: str, model: str, conn):
+    def __init__(self, id, model, conn):
+        """Sets up the agent with its ID, AI client, doc manager, and all runtime state fields."""
         self.id = id
         self.model = model
         self.conn = conn
@@ -35,7 +39,6 @@ class Agent:
         self.doc_read = False
 
         self.screen_path = os.path.join(RUNTIME_DIR, f"screenshot_{self.id}.png")
-        self.state_path = os.path.join(RUNTIME_DIR, f"{self.id}.soul")
         self.task_ready = threading.Event()
 
         os.makedirs(RUNTIME_DIR, exist_ok=True)
@@ -49,13 +52,13 @@ class Agent:
         self.save()
 
     def activate(self):
+        """Waits for task assignments and runs them in a loop — the manager signals this via task_ready."""
         try:
             while True:
                 self.task_ready.wait()
                 self.task_ready.clear()
 
-                task_completed_successfully = self.run()
-                if not task_completed_successfully:
+                if not self.run():
                     break
 
                 self.status = "idle"
@@ -68,7 +71,8 @@ class Agent:
             self.status = "disconnected"
             print(f"[Agent {self.id}] Disconnected")
 
-    def assign(self, task: str, research_mode: bool = False, doc_id: str = None):
+    def assign(self, task, research_mode=False, doc_id=None):
+        """Sets up the agent's task state and signals it to begin — called by the manager."""
         self.task = task
         self.status = "working"
         self.cycles = 0
@@ -99,12 +103,12 @@ class Agent:
         self.task_ready.set()
         print(f"[Agent {self.id}] Assigned ({mode_label}): {task[:60]}...")
 
-    def run(self) -> bool:
+    def run(self):
+        """Runs the think-act loop until the task is done or the connection fails."""
         while self.status == "working" and self.task:
             self.cycles += 1
 
-            screenshot_received = self.look()
-            if not screenshot_received:
+            if not self.look():
                 return False
 
             ai_response = self.think()
@@ -114,25 +118,23 @@ class Agent:
                 print(f"[Agent {self.id}] Completed in {self.cycles} cycles")
                 return True
 
-            action_succeeded = self.act(ai_response)
-            if not action_succeeded:
+            if not self.act(ai_response):
                 return False
 
             time.sleep(1)
 
         return True
 
-    def look(self) -> bool:
+    def look(self):
+        """Requests a screenshot from the client and appends it to history so the AI can see the current screen."""
         self.status_msg = "Looking..."
         self.save()
 
-        screenshot_requested = send({"type": "request_screenshot"}, self.conn)
-        if not screenshot_requested:
+        if not send({"type": "request_screenshot"}, self.conn):
             print(f"[Agent {self.id}] Failed to request screenshot")
             return False
 
-        screenshot_received = recv_file(self.screen_path, self.conn)
-        if not screenshot_received:
+        if not receive_file(self.screen_path, self.conn):
             print(f"[Agent {self.id}] Failed to receive screenshot")
             return False
 
@@ -143,65 +145,8 @@ class Agent:
         })
         return True
 
-    def think(self) -> dict:
-        self.status_msg = "Thinking..."
-        self.save()
-
-        try:
-            return self._call_ai()
-        except Exception as error:
-            print(f"[Agent {self.id}] AI error: {error}")
-            return self._fallback_response(str(error))
-
-    def _call_ai(self) -> dict:
-        initial_messages = self.history[:2]
-        recent_messages = self.history[2:][-MAX_HISTORY_LENGTH:]
-        messages = initial_messages + recent_messages
-
-        result = self.ai.chat(model=self.model, messages=messages)
-        raw_text = result["message"]["content"].strip()
-
-        print(f"[Agent {self.id}] AI response: {raw_text}")
-
-        parsed = self._extract_json(raw_text)
-        if parsed is None:
-            return self._fallback_response("No valid JSON found in AI response")
-
-        parsed["raw"] = raw_text
-        self._append_ai_response_to_history(raw_text)
-        return parsed
-
-    def _extract_json(self, text: str) -> dict | None:
-        json_start = text.find("{")
-        json_end = text.rfind("}") + 1
-
-        no_json_found = json_start == -1 or json_end == 0
-        if no_json_found:
-            return None
-
-        try:
-            return json.loads(text[json_start:json_end])
-        except json.JSONDecodeError:
-            return None
-
-    def _append_ai_response_to_history(self, raw_text: str):
-        last_message = self.history[-1] if self.history else None
-        last_message_has_images = last_message and "images" in last_message
-        if last_message_has_images:
-            last_message.pop("images")
-        self.history.append({"role": "assistant", "content": raw_text})
-
-    def _fallback_response(self, error_detail: str) -> dict:
-        current_phase = self.phase or "EXECUTE"
-        return {
-            "Step": current_phase,
-            "Status": "Error",
-            "Next Action": "None",
-            "Reasoning": error_detail,
-            "raw": error_detail
-        }
-
-    def parse(self, ai_response: dict):
+    def parse(self, ai_response):
+        """Extracts the current step info from the AI response and nudges the agent if it's stuck in the same phase."""
         current_phase = ai_response.get("Step", "SEARCH")
 
         self.step = {
@@ -213,15 +158,13 @@ class Agent:
             "value": ai_response.get("Value")
         }
 
-        phase_changed = current_phase != self.phase
-        if phase_changed:
+        if current_phase != self.phase:
             self.phase = current_phase
             self.phase_count = 1
         else:
             self.phase_count += 1
 
-        agent_is_stuck = self.phase_count > MAX_CYCLES_IN_SAME_PHASE
-        if agent_is_stuck:
+        if self.phase_count > MAX_CYCLES_IN_SAME_PHASE:
             stuck_hint = (
                 f"You've been on {current_phase} for {self.phase_count} actions. "
                 "Stop repeating the same action; switch phases (SEARCH→READ→WRITE→SEARCH). "
@@ -230,7 +173,8 @@ class Agent:
             self.history.append({"role": "user", "content": stuck_hint})
             print(f"[Agent {self.id}] Stuck on {current_phase} for {self.phase_count} actions")
 
-    def done(self) -> bool:
+    def done(self):
+        """Checks if the AI returned a None action, which signals the task is complete."""
         action_name = self.step.get("action")
         is_done = action_name in (None, "None")
 
@@ -241,7 +185,8 @@ class Agent:
 
         return is_done
 
-    def act(self, ai_response: dict) -> bool:
+    def act(self, ai_response):
+        """Routes the AI's chosen action to either the doc handler or the client machine."""
         self.status_msg = self.step.get("status_short", "Acting...")
         self.save()
 
@@ -249,13 +194,13 @@ class Agent:
         value = ai_response.get("Value")
         coordinate = ai_response.get("Coordinate")
 
-        is_doc_action = action in {"read_doc", "write_doc"}
-        if is_doc_action:
-            return self._handle_doc_action(action, value)
+        if action in {"read_doc", "write_doc"}:
+            return self._handle_doc_command(action, value)
 
-        return self._send_action_to_client(action, coordinate, value)
+        return self._send_to_client(action, coordinate, value)
 
-    def _send_action_to_client(self, action: str, coordinate, value) -> bool:
+    def _send_to_client(self, action, coordinate, value):
+        """Sends an action command to the client machine and waits for the execution result."""
         command = {"Next Action": action, "Coordinate": coordinate, "Value": value}
         sent = send({"type": "execute_step", "step": command}, self.conn)
         if not sent:
@@ -271,7 +216,75 @@ class Agent:
         self.save()
         return True
 
-    def _handle_doc_action(self, action: str, value) -> bool:
+    def think(self):
+        """Calls the AI with the current conversation history and returns its next action — falls back to a safe no-op on error."""
+        self.status_msg = "Thinking..."
+        self.save()
+
+        try:
+            return self._query_ai()
+        except Exception as error:
+            print(f"[Agent {self.id}] AI error: {error}")
+            return self._error_step(str(error))
+
+    def _query_ai(self):
+        """Sends the trimmed conversation history to the AI model and parses the JSON response."""
+        initial_messages = self.history[:2]
+        all_recent_messages = self.history[2:]
+        recent_messages = all_recent_messages[-MAX_HISTORY_LENGTH:]
+        messages = initial_messages + recent_messages
+
+        result = self.ai.chat(model=self.model, messages=messages)
+        raw_text = result["message"]["content"].strip()
+
+        print(f"[Agent {self.id}] AI response: {raw_text}")
+
+        parsed = self._parse_json(raw_text)
+        if parsed is None:
+            return self._error_step("No valid JSON found in AI response")
+
+        parsed["raw"] = raw_text
+        self._record_ai_reply(raw_text)
+        return parsed
+
+    def _parse_json(self, text):
+        """Finds and parses the first JSON object in the AI's raw text output."""
+        json_start = text.find("{")
+        last_brace = text.rfind("}")
+
+        if json_start == -1 or last_brace == -1:
+            return None
+
+        json_end = last_brace + 1
+
+        try:
+            return json.loads(text[json_start:json_end])
+        except json.JSONDecodeError:
+            return None
+
+    def _record_ai_reply(self, raw_text):
+        """Strips the image from the last history entry and appends the assistant's reply so the next call includes it."""
+        if self.history:
+            last_message = self.history[-1]
+        else:
+            last_message = None
+        if last_message and "images" in last_message:
+            last_message.pop("images")
+        self.history.append({"role": "assistant", "content": raw_text})
+
+    def _error_step(self, error_detail):
+        """Builds a safe no-op response when the AI call fails so the agent loop can continue gracefully."""
+        current_phase = self.phase or "EXECUTE"
+        return {
+            "Step": current_phase,
+            "Status": "Error",
+            "Next Action": "None",
+            "Reasoning": error_detail,
+            "raw": error_detail
+        }
+
+    def _handle_doc_command(self, action, value):
+        """Routes read_doc and write_doc actions to the appropriate handler — silently skips if no doc is configured."""
         if not self.research_mode or not self.doc_id:
             return True
 
@@ -287,7 +300,8 @@ class Agent:
             self.save()
             return True
 
-    def _read_doc(self) -> bool:
+    def _read_doc(self):
+        """Reads the current document and injects its text into conversation history so the AI knows what's already written."""
         snapshot = self.docs.read(self.doc_id)
         doc_text = snapshot.get("text", "")
         self.history.append({"role": "user", "content": f"DOC_READ_RESULT ({self.doc_id}):\n{doc_text}"})
@@ -297,9 +311,10 @@ class Agent:
         self.save()
         return True
 
-    def _write_doc(self, payload) -> bool:
+    def _write_doc(self, payload):
+        """Writes content to the document and reports the outcome back into history so the AI knows the write succeeded."""
         if not self.doc_read:
-            self._auto_read_doc_before_write()
+            self._prefetch_doc()
 
         insert_index = None
         dedupe = None
@@ -328,13 +343,15 @@ class Agent:
         self.save()
         return True
 
-    def _auto_read_doc_before_write(self):
+    def _prefetch_doc(self):
+        """Automatically reads the document before a write so the AI has current context without an explicit read_doc step."""
         snapshot = self.docs.read(self.doc_id)
         doc_text = snapshot.get("text", "")
         self.history.append({"role": "user", "content": f"DOC_AUTO_READ ({self.doc_id}):\n{doc_text}"})
         self.doc_read = True
 
     def save(self):
+        """Saves the agent's current state to the database."""
         state = {
             "id": self.id,
             "status": self.status,
@@ -346,22 +363,15 @@ class Agent:
             "cycle": self.cycles,
             "phase": self.phase,
             "phase_count": self.phase_count,
-            "ts": time.time()
         }
-        self._write_soul_file(state)
-        self._update_database(state)
+        self._persist_to_db(state)
 
-    def _write_soul_file(self, state: dict):
-        temp_path = self.state_path + ".tmp"
-        try:
-            with open(temp_path, "w", encoding="utf-8") as f:
-                json.dump(state, f, ensure_ascii=False, separators=(",", ":"))
-            os.replace(temp_path, self.state_path)
-        except Exception as error:
-            print(f"[Agent {self.id}] Soul file write failed: {error}")
-
-    def _update_database(self, state: dict):
-        step_json = json.dumps(state["step"], ensure_ascii=False) if state["step"] else None
+    def _persist_to_db(self, state):
+        """Writes the agent's current state fields to the database so the API can serve them without reading the soul file."""
+        if state["step"]:
+            step_json = json.dumps(state["step"], ensure_ascii=False)
+        else:
+            step_json = None
         try:
             db.update_agent(
                 self.id,
