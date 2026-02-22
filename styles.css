@@ -133,9 +133,165 @@ p {
 .actions {
   margin-top: 22px;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  align-items: center;
   justify-content: center;
   gap: 12px;
+}
+
+.install-picker {
+  display: block;
+  position: relative;
+  width: 320px;
+  max-width: 100%;
+}
+
+.install-toggle {
+  width: 100%;
+  min-height: 60px;
+  position: relative;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: linear-gradient(145deg, rgba(20, 20, 23, 0.88), rgba(12, 12, 14, 0.92));
+  color: #f6f8ff;
+  font-family: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(15px, 1.2vw, 19px);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 14px 30px rgba(4, 5, 8, 0.42);
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+
+.install-toggle:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.35);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 18px 34px rgba(4, 5, 8, 0.5);
+}
+
+.install-toggle-text {
+  display: inline-flex;
+  align-items: center;
+  white-space: normal;
+  line-height: 1.2;
+  justify-content: center;
+}
+
+.install-toggle-content {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.install-caret-wrap {
+  min-width: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-right: 0;
+}
+
+.install-caret {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform 160ms ease;
+}
+
+.install-picker[data-open="true"] .install-caret {
+  transform: translateY(2px) rotate(-135deg);
+}
+
+.install-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  padding: 8px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: linear-gradient(145deg, rgba(26, 26, 29, 0.98), rgba(12, 12, 14, 0.98));
+  box-shadow: 0 18px 36px rgba(4, 5, 8, 0.5);
+  display: none;
+  z-index: 10;
+}
+
+.install-picker[data-open="true"] .install-menu {
+  display: grid;
+  gap: 8px;
+}
+
+.install-option {
+  width: 100%;
+  min-height: 44px;
+  border-radius: 12px;
+  border: none;
+  background: transparent;
+  color: #edf2ff;
+  font-family: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(14px, 0.95vw, 15px);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 10px 12px;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.install-option-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  opacity: 0.92;
+}
+
+.install-option-label {
+  min-width: 0;
+  flex: 1;
+}
+
+.install-option:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.install-option-capsule {
+  margin-left: 10px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(245, 249, 255, 0.92);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.install-option:focus-visible,
+.install-toggle:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.95);
+  outline-offset: 2px;
+}
+
+.install-option.is-selected {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
 }
 
 .btn {
@@ -207,6 +363,10 @@ p {
   box-shadow: 0 18px 34px rgba(6, 10, 22, 0.26);
 }
 
+#instructions-btn {
+  white-space: nowrap;
+}
+
 .btn:active {
   transform: translateY(0);
 }
@@ -216,13 +376,113 @@ p {
   outline-offset: 2px;
 }
 
+.custom-alert {
+  position: absolute;
+  left: 50%;
+  bottom: clamp(44px, 6vw, 74px);
+  transform: translateX(-50%) translateY(12px);
+  z-index: 6;
+  width: min(620px, calc(100% - 32px));
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: linear-gradient(145deg, rgba(22, 22, 26, 0.96), rgba(11, 11, 14, 0.96));
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.custom-alert.is-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  pointer-events: auto;
+}
+
+.custom-alert-icon {
+  width: 18px;
+  height: 18px;
+  color: #dce7ff;
+  flex: 0 0 18px;
+}
+
+.custom-alert-message {
+  margin: 0;
+  max-width: none;
+  color: rgba(238, 244, 255, 0.92);
+  font-size: 15px;
+  line-height: 1.35;
+  text-align: left;
+  flex: 1;
+}
+
+.custom-alert-close {
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  background: transparent;
+  color: #e8eeff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex: 0 0 30px;
+}
+
+.custom-alert-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.custom-alert-close svg {
+  width: 14px;
+  height: 14px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
 @media (max-width: 720px) {
+  html,
+  body {
+    overflow: auto;
+  }
+
+  .viewport {
+    min-height: 100dvh;
+    height: auto;
+    padding: 10px;
+  }
+
   .hero-card {
     border-radius: 18px;
+    min-height: calc(100dvh - 20px);
   }
 
   .hero-icon {
     border-radius: 0;
+    width: clamp(82px, 19vw, 106px);
+    height: clamp(82px, 19vw, 106px);
+  }
+
+  h1 {
+    font-size: clamp(34px, 12vw, 58px);
+  }
+
+  p {
+    font-size: clamp(15px, 4.2vw, 20px);
+    line-height: 1.35;
   }
 
   .github-btn {
@@ -239,10 +499,58 @@ p {
 
   .actions {
     width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+    align-items: stretch;
+    gap: 10px;
   }
 
   .btn {
-    width: min(320px, 100%);
+    width: 100%;
     text-align: center;
+    padding: 14px 14px;
+    min-height: 56px;
+    font-size: clamp(13px, 3.2vw, 15px);
+  }
+
+  .install-picker {
+    width: 100%;
+  }
+
+  .install-menu {
+    width: 100%;
+  }
+
+  .install-caret-wrap {
+    min-width: 28px;
+  }
+
+  .custom-alert {
+    bottom: 70px;
+    width: calc(100% - 24px);
+    padding: 12px 14px;
+  }
+
+  .custom-alert-message {
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 520px) {
+  .hero-content {
+    gap: 16px;
+    padding: 20px 14px 42px;
+  }
+
+  .actions {
+    grid-template-columns: 1fr;
+  }
+
+  #instructions-btn {
+    font-size: 13px;
+  }
+
+  .site-footer {
+    bottom: 8px;
   }
 }

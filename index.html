@@ -38,11 +38,55 @@
           </p>
 
           <div class="actions">
-            <a href="https://github.com/danielreiman/Harmony/archive/refs/heads/main.zip" class="btn btn-primary">Install</a>
-            <a href="instructions-book.pdf" class="btn btn-secondary" download
-              >Download Instructions Book</a
-            >
+            <div class="install-picker" data-install-picker>
+              <button
+                id="install-toggle"
+                class="install-toggle"
+                type="button"
+                aria-haspopup="true"
+                aria-expanded="false"
+              >
+                <span class="install-toggle-content">
+                  <span class="install-toggle-text">Install Now</span>
+                  <span class="install-caret-wrap" aria-hidden="true">
+                    <span class="install-caret"></span>
+                  </span>
+                </span>
+              </button>
+              <div class="install-menu" id="install-menu" role="listbox" aria-label="Install version">
+                <button
+                  type="button"
+                  class="install-option is-selected"
+                  role="option"
+                  data-branch="main"
+                  aria-selected="true"
+                >
+                  <span class="install-option-icon" data-lucide="shield-check" aria-hidden="true"></span>
+                  <span class="install-option-label">Install Stable (main)</span>
+                  <span class="install-option-capsule">DOWNLOAD</span>
+                </button>
+                <button
+                  type="button"
+                  class="install-option"
+                  role="option"
+                  data-branch="in-development"
+                  aria-selected="false"
+                >
+                  <span class="install-option-icon" data-lucide="flask-conical" aria-hidden="true"></span>
+                  <span class="install-option-label">Install In Development</span>
+                  <span class="install-option-capsule">DOWNLOAD</span>
+                </button>
+              </div>
+            </div>
+            <button type="button" id="instructions-btn" class="btn btn-secondary">Download Instructions Book</button>
           </div>
+        </div>
+        <div class="custom-alert" id="custom-alert" role="status" aria-live="polite" hidden>
+          <span class="custom-alert-icon" data-lucide="clock-3" aria-hidden="true"></span>
+          <p class="custom-alert-message">Instructions book is coming soon.</p>
+          <button type="button" class="custom-alert-close" id="custom-alert-close" aria-label="Close alert">
+            <span data-lucide="x" aria-hidden="true"></span>
+          </button>
         </div>
         <footer class="site-footer">
           <p>&copy; 2026 Daniel Reiman. All rights reserved.</p>
@@ -50,6 +94,7 @@
       </section>
     </main>
 
+    <script src="https://unpkg.com/lucide@latest"></script>
     <script src="script.js"></script>
   </body>
 </html>
