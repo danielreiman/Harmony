@@ -4,25 +4,30 @@ import sqlite3
 import threading
 import time
 
+
 DB_PATH = os.path.join(os.path.dirname(__file__), "harmony.db")
 SESSION_MAX_AGE_SECONDS = 7 * 24 * 3600
 
 _thread_local = threading.local()
 
 
-def _get_connection() -> sqlite3.Connection:
-    connection = getattr(_thread_local, "connection", None)
-    if connection is None:
-        connection = sqlite3.connect(DB_PATH, timeout=10)
-        connection.execute("PRAGMA journal_mode=WAL")
-        connection.execute("PRAGMA foreign_keys=ON")
-        connection.row_factory = sqlite3.Row
-        _thread_local.connection = connection
+def _conn():
+    """Returns a per-thread SQLite connection, opening one with WAL mode the first time a thread calls it."""
+    if hasattr(_thread_local, "connection"):
+        return _thread_local.connection
+
+    connection = sqlite3.connect(DB_PATH, timeout=10)
+    connection.execute("PRAGMA journal_mode=WAL")
+    connection.execute("PRAGMA foreign_keys=ON")
+    connection.row_factory = sqlite3.Row
+    _thread_local.connection = connection
     return connection
 
 
-def init_db():
-    connection = _get_connection()
+# --- Schema ---
+
+def _setup_tables(connection):
+    """Creates all tables on first startup so the server has a working database immediately."""
     connection.executescript("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,7 +51,8 @@ def init_db():
             doc_id TEXT,
             status TEXT NOT NULL DEFAULT 'queued',
             assigned_agent TEXT,
-            created_at REAL NOT NULL
+            created_at REAL NOT NULL,
+            user_id INTEGER
         );
 
         CREATE TABLE IF NOT EXISTS agents (
@@ -84,28 +90,112 @@ def init_db():
     connection.commit()
 
 
-def add_task(task: str, research_mode: bool = False, doc_id: str = None) -> int:
-    connection = _get_connection()
+def init_db():
+    """Creates all tables on server startup."""
+    _setup_tables(_conn())
+
+
+# --- Agents ---
+
+def register_agent(agent_id):
+    """Inserts or replaces an agent record with idle status when a client connects to the server."""
+    connection = _conn()
+    now = time.time()
+    connection.execute(
+        "INSERT OR REPLACE INTO agents (agent_id, status, connected_at, updated_at) VALUES (?, 'idle', ?, ?)",
+        (agent_id, now, now)
+    )
+    connection.commit()
+
+
+def update_agent(agent_id, **fields):
+    """Updates allowed agent fields in the database — called by the agent after every state change."""
+    connection = _conn()
+    allowed_fields = {"status", "task", "status_text", "research_mode", "doc_id", "step_json", "cycle", "phase", "phase_count"}
+
+    fields_to_update = {}
+    for key, value in fields.items():
+        if key in allowed_fields:
+            fields_to_update[key] = value
+
+    if not fields_to_update:
+        return
+
+    fields_to_update["updated_at"] = time.time()
+
+    column_parts = []
+    for key in fields_to_update:
+        column_parts.append(f"{key} = ?")
+    column_assignments = ", ".join(column_parts)
+
+    values = list(fields_to_update.values()) + [agent_id]
+    connection.execute(f"UPDATE agents SET {column_assignments} WHERE agent_id = ?", values)
+    connection.commit()
+
+
+def remove_agent(agent_id):
+    """Deletes the agent record when the manager detects it has disconnected."""
+    connection = _conn()
+    connection.execute("DELETE FROM agents WHERE agent_id = ?", (agent_id,))
+    connection.commit()
+
+
+def get_agent(agent_id):
+    """Fetches a single agent record by ID — used by the manager and API to check agent state."""
+    connection = _conn()
+    row = connection.execute("SELECT * FROM agents WHERE agent_id = ?", (agent_id,)).fetchone()
+    if row:
+        return dict(row)
+    return None
+
+
+def get_all_agents():
+    """Fetches all agent records ordered by ID."""
+    connection = _conn()
+    rows = connection.execute("SELECT * FROM agents ORDER BY agent_id").fetchall()
+    result = []
+    for row in rows:
+        result.append(dict(row))
+    return result
+
+
+def set_command(agent_id, command):
+    """Writes a command status to the agent row so the manager loop picks it up on the next tick."""
+    connection = _conn()
+    connection.execute(
+        "UPDATE agents SET status = ? WHERE agent_id = ?",
+        (command, agent_id)
+    )
+    connection.commit()
+
+
+# --- Tasks ---
+
+def add_task(task, research_mode=False, doc_id=None, user_id=None):
+    """Inserts a general queued task that the manager will assign to the next idle agent."""
+    connection = _conn()
     cursor = connection.execute(
-        "INSERT INTO tasks (task, research_mode, doc_id, status, created_at) VALUES (?, ?, ?, 'queued', ?)",
-        (task, int(research_mode), doc_id, time.time())
+        "INSERT INTO tasks (task, research_mode, doc_id, status, created_at, user_id) VALUES (?, ?, ?, 'queued', ?, ?)",
+        (task, int(research_mode), doc_id, time.time(), user_id)
     )
     connection.commit()
     return cursor.lastrowid
 
 
-def add_task_for_agent(task: str, agent_id: str, research_mode: bool = False, doc_id: str = None) -> int:
-    connection = _get_connection()
+def add_task_for_agent(task, agent_id, research_mode=False, doc_id=None, user_id=None):
+    """Inserts a task pre-assigned to a specific agent so the manager routes it directly."""
+    connection = _conn()
     cursor = connection.execute(
-        "INSERT INTO tasks (task, research_mode, doc_id, status, assigned_agent, created_at) VALUES (?, ?, ?, 'queued', ?, ?)",
-        (task, int(research_mode), doc_id, agent_id, time.time())
+        "INSERT INTO tasks (task, research_mode, doc_id, status, assigned_agent, created_at, user_id) VALUES (?, ?, ?, 'queued', ?, ?, ?)",
+        (task, int(research_mode), doc_id, agent_id, time.time(), user_id)
     )
     connection.commit()
     return cursor.lastrowid
 
 
-def get_queued_tasks(agent_id: str = None) -> list[dict]:
-    connection = _get_connection()
+def get_queued_tasks(agent_id=None):
+    """Fetches queued tasks targeted at a specific agent, or all unassigned tasks if no agent is given."""
+    connection = _conn()
     if agent_id:
         rows = connection.execute(
             "SELECT id, task, research_mode, doc_id, assigned_agent FROM tasks WHERE status = 'queued' AND assigned_agent = ? ORDER BY id",
@@ -115,19 +205,47 @@ def get_queued_tasks(agent_id: str = None) -> list[dict]:
         rows = connection.execute(
             "SELECT id, task, research_mode, doc_id, assigned_agent FROM tasks WHERE status = 'queued' AND assigned_agent IS NULL ORDER BY id"
         ).fetchall()
-    return [dict(row) for row in rows]
+    result = []
+    for row in rows:
+        result.append(dict(row))
+    return result
 
 
-def get_all_queued_tasks() -> list[dict]:
-    connection = _get_connection()
+def get_tasks_for_user(user_id):
+    """Fetches all tasks belonging to the given user, newest first, for the dashboard task list."""
+    connection = _conn()
     rows = connection.execute(
-        "SELECT id, task, research_mode, doc_id, assigned_agent FROM tasks WHERE status = 'queued' ORDER BY id"
+        "SELECT id, task, status, assigned_agent, created_at FROM tasks WHERE user_id = ? ORDER BY id DESC",
+        (user_id,)
     ).fetchall()
-    return [dict(row) for row in rows]
+    result = []
+    for row in rows:
+        result.append(dict(row))
+    return result
 
 
-def assign_task(task_id: int, agent_id: str):
-    connection = _get_connection()
+def get_task_logs_for_user(user_id):
+    """Fetches the 200 most recent task log entries for the user's tasks to populate the dashboard activity feed."""
+    connection = _conn()
+    rows = connection.execute(
+        """SELECT task_log.id, task_log.task_id, task_log.agent_id, task_log.action,
+                  task_log.detail, task_log.created_at
+           FROM task_log
+           JOIN tasks ON task_log.task_id = tasks.id
+           WHERE tasks.user_id = ?
+           ORDER BY task_log.id DESC
+           LIMIT 200""",
+        (user_id,)
+    ).fetchall()
+    result = []
+    for row in rows:
+        result.append(dict(row))
+    return result
+
+
+def assign_task(task_id, agent_id):
+    """Marks a task as assigned to the given agent so the manager doesn't hand it to another agent."""
+    connection = _conn()
     connection.execute(
         "UPDATE tasks SET status = 'assigned', assigned_agent = ? WHERE id = ?",
         (agent_id, task_id)
@@ -135,84 +253,11 @@ def assign_task(task_id: int, agent_id: str):
     connection.commit()
 
 
-def complete_task(task_id: int):
-    connection = _get_connection()
-    connection.execute("UPDATE tasks SET status = 'completed' WHERE id = ?", (task_id,))
-    connection.commit()
+# --- Users ---
 
-
-def register_agent(agent_id: str):
-    connection = _get_connection()
-    now = time.time()
-    connection.execute(
-        "INSERT OR REPLACE INTO agents (agent_id, status, connected_at, updated_at) VALUES (?, 'idle', ?, ?)",
-        (agent_id, now, now)
-    )
-    connection.commit()
-
-
-def update_agent(agent_id: str, **fields):
-    connection = _get_connection()
-    allowed_fields = {"status", "task", "status_text", "research_mode", "doc_id", "step_json", "cycle", "phase", "phase_count"}
-    fields_to_update = {key: value for key, value in fields.items() if key in allowed_fields}
-
-    if not fields_to_update:
-        return
-
-    fields_to_update["updated_at"] = time.time()
-    column_assignments = ", ".join(f"{key} = ?" for key in fields_to_update)
-    values = list(fields_to_update.values()) + [agent_id]
-    connection.execute(f"UPDATE agents SET {column_assignments} WHERE agent_id = ?", values)
-    connection.commit()
-
-
-def remove_agent(agent_id: str):
-    connection = _get_connection()
-    connection.execute("DELETE FROM agents WHERE agent_id = ?", (agent_id,))
-    connection.commit()
-
-
-def get_agent(agent_id: str) -> dict | None:
-    connection = _get_connection()
-    row = connection.execute("SELECT * FROM agents WHERE agent_id = ?", (agent_id,)).fetchone()
-    return dict(row) if row else None
-
-
-def get_all_agents() -> list[dict]:
-    connection = _get_connection()
-    rows = connection.execute("SELECT * FROM agents ORDER BY agent_id").fetchall()
-    return [dict(row) for row in rows]
-
-
-def log_task_event(task_id: int, agent_id: str, action: str, detail: str = None):
-    connection = _get_connection()
-    connection.execute(
-        "INSERT INTO task_log (task_id, agent_id, action, detail, created_at) VALUES (?, ?, ?, ?, ?)",
-        (task_id, agent_id, action, detail, time.time())
-    )
-    connection.commit()
-
-
-def set_command(agent_id: str, command: str):
-    connection = _get_connection()
-    connection.execute(
-        "UPDATE agents SET status = ? WHERE agent_id = ?",
-        (command, agent_id)
-    )
-    connection.commit()
-
-
-def send_agent_message(agent_id: str, content: str):
-    connection = _get_connection()
-    connection.execute(
-        "INSERT INTO agent_messages (agent_id, content, consumed, created_at) VALUES (?, ?, 0, ?)",
-        (agent_id, content, time.time())
-    )
-    connection.commit()
-
-
-def create_user(username: str, password: str) -> bool:
-    connection = _get_connection()
+def create_user(username, password):
+    """Creates a new user with a salted password hash — returns False if the username is taken."""
+    connection = _conn()
     salt = os.urandom(32).hex()
     password_hash = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000).hex()
     try:
@@ -226,8 +271,9 @@ def create_user(username: str, password: str) -> bool:
         return False
 
 
-def verify_user(username: str, password: str) -> int | None:
-    connection = _get_connection()
+def verify_user(username, password):
+    """Verifies credentials against the stored hash and returns the user ID, or None if they don't match."""
+    connection = _conn()
     row = connection.execute(
         "SELECT id, password_hash, salt FROM users WHERE username = ?",
         (username,)
@@ -237,15 +283,25 @@ def verify_user(username: str, password: str) -> int | None:
         return None
 
     attempt_hash = hashlib.pbkdf2_hmac("sha256", password.encode(), row["salt"].encode(), 100_000).hex()
-    password_is_correct = attempt_hash == row["password_hash"]
-
-    if password_is_correct:
+    if attempt_hash == row["password_hash"]:
         return row["id"]
     return None
 
 
-def create_session(user_id: int) -> str:
-    connection = _get_connection()
+def get_username(user_id):
+    """Looks up the display name for a user ID — used when building the auth_validate response."""
+    connection = _conn()
+    row = connection.execute("SELECT username FROM users WHERE id = ?", (user_id,)).fetchone()
+    if row:
+        return row["username"]
+    return None
+
+
+# --- Sessions ---
+
+def create_session(user_id):
+    """Creates a new session record and returns the generated token for the dashboard to store."""
+    connection = _conn()
     token = os.urandom(32).hex()
     now = time.time()
     connection.execute(
@@ -256,8 +312,9 @@ def create_session(user_id: int) -> str:
     return token
 
 
-def validate_session(token: str) -> int | None:
-    connection = _get_connection()
+def validate_session(token):
+    """Validates the session token, expires it if stale, refreshes last_active if valid, and returns the user ID."""
+    connection = _conn()
     row = connection.execute(
         "SELECT user_id, last_active FROM sessions WHERE token = ?",
         (token,)
@@ -266,9 +323,8 @@ def validate_session(token: str) -> int | None:
     if row is None:
         return None
 
-    session_age_seconds = time.time() - row["last_active"]
-    session_is_expired = session_age_seconds > SESSION_MAX_AGE_SECONDS
-    if session_is_expired:
+    age_in_seconds = time.time() - row["last_active"]
+    if age_in_seconds > SESSION_MAX_AGE_SECONDS:
         connection.execute("DELETE FROM sessions WHERE token = ?", (token,))
         connection.commit()
         return None
@@ -278,20 +334,28 @@ def validate_session(token: str) -> int | None:
     return row["user_id"]
 
 
-def delete_session(token: str):
-    connection = _get_connection()
+def delete_session(token):
+    """Removes the session record so the user is logged out of the dashboard."""
+    connection = _conn()
     connection.execute("DELETE FROM sessions WHERE token = ?", (token,))
     connection.commit()
 
 
-def get_username(user_id: int) -> str | None:
-    connection = _get_connection()
-    row = connection.execute("SELECT username FROM users WHERE id = ?", (user_id,)).fetchone()
-    return row["username"] if row else None
+# --- Messages ---
+
+def send_agent_message(agent_id, content):
+    """Inserts a message into the queue so the manager delivers it to a running agent on the next tick."""
+    connection = _conn()
+    connection.execute(
+        "INSERT INTO agent_messages (agent_id, content, consumed, created_at) VALUES (?, ?, 0, ?)",
+        (agent_id, content, time.time())
+    )
+    connection.commit()
 
 
-def consume_agent_messages(agent_id: str) -> list[str]:
-    connection = _get_connection()
+def consume_agent_messages(agent_id):
+    """Fetches all unconsumed messages for an agent and marks them as consumed so they aren't delivered twice."""
+    connection = _conn()
     rows = connection.execute(
         "SELECT id, content FROM agent_messages WHERE agent_id = ? AND consumed = 0 ORDER BY id",
         (agent_id,)
@@ -300,11 +364,22 @@ def consume_agent_messages(agent_id: str) -> list[str]:
     if not rows:
         return []
 
-    message_ids = [row["id"] for row in rows]
-    placeholders = ",".join("?" * len(message_ids))
+    message_ids = []
+    for row in rows:
+        message_ids.append(row["id"])
+
+    placeholder_list = []
+    for _ in message_ids:
+        placeholder_list.append("?")
+    placeholders = ",".join(placeholder_list)
+
     connection.execute(
         f"UPDATE agent_messages SET consumed = 1 WHERE id IN ({placeholders})",
         message_ids
     )
     connection.commit()
-    return [row["content"] for row in rows]
+
+    messages = []
+    for row in rows:
+        messages.append(row["content"])
+    return messages

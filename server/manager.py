@@ -1,13 +1,12 @@
-import json
 import time
 from ollama import Client
 import config
-from prompts import TASK_SPLIT_PROMPT
 import database as db
 
 
 class Manager:
-    def __init__(self, agents: dict, agents_lock):
+    def __init__(self, agents, agents_lock):
+        """Holds the shared agent registry and AI client so it can assign tasks and relay messages to agents."""
         self.agents = agents
         self.lock = agents_lock
         self.ai = Client(
@@ -16,26 +15,28 @@ class Manager:
         )
 
     def activate(self):
+        """Runs the manager loop, polling for disconnections, commands, messages, and new tasks every second."""
         while True:
-            self.cleanup_disconnected_agents()
-            self.poll_commands()
-            self.deliver_pending_messages()
-            self.assign_queued_tasks()
+            self.drop_disconnected()
+            self.process_commands()
+            self.forward_messages()
+            self.dispatch_tasks()
             time.sleep(1)
 
-    def cleanup_disconnected_agents(self):
+    def drop_disconnected(self):
+        """Removes agents that have disconnected from the registry and database so they stop appearing in the dashboard."""
         with self.lock:
-            disconnected_ids = [
-                agent_id
-                for agent_id, agent in self.agents.items()
-                if agent.status == "disconnected"
-            ]
+            disconnected_ids = []
+            for agent_id, agent in self.agents.items():
+                if agent.status == "disconnected":
+                    disconnected_ids.append(agent_id)
             for agent_id in disconnected_ids:
                 print(f"[Manager] Removing: {agent_id}")
                 db.remove_agent(agent_id)
                 del self.agents[agent_id]
 
-    def poll_commands(self):
+    def process_commands(self):
+        """Checks the database for stop or disconnect commands and applies them to the live agent objects."""
         with self.lock:
             for agent_id, agent in list(self.agents.items()):
                 db_agent = db.get_agent(agent_id)
@@ -44,17 +45,15 @@ class Manager:
 
                 db_status = db_agent["status"]
                 agent_is_working = agent.status == "working"
-                stop_was_requested = db_status == "stop_requested" and agent_is_working
-                disconnect_was_requested = db_status == "disconnect_requested"
 
-                if stop_was_requested:
+                if db_status == "stop_requested" and agent_is_working:
                     agent.status = "idle"
                     agent.task = None
                     agent.status_msg = "Stopped"
                     agent.save()
                     print(f"[Manager] Stopped: {agent_id}")
 
-                elif disconnect_was_requested:
+                elif db_status == "disconnect_requested":
                     agent.status = "disconnected"
                     try:
                         agent.conn.close()
@@ -62,11 +61,11 @@ class Manager:
                         pass
                     print(f"[Manager] Disconnect requested: {agent_id}")
 
-    def deliver_pending_messages(self):
+    def forward_messages(self):
+        """Injects any pending database messages into the conversation history of working agents."""
         with self.lock:
             for agent_id, agent in self.agents.items():
-                agent_is_not_working = agent.status != "working"
-                if agent_is_not_working:
+                if agent.status != "working":
                     continue
 
                 pending_messages = db.consume_agent_messages(agent_id)
@@ -74,14 +73,14 @@ class Manager:
                     agent.history.append({"role": "user", "content": message})
                     print(f"[Manager] Delivered message to {agent_id}: {message[:60]}...")
 
-    def assign_queued_tasks(self):
+    def dispatch_tasks(self):
+        """Picks the next queued task for each idle agent and assigns it."""
         with self.lock:
             for agent in self.agents.values():
-                agent_is_not_idle = agent.status != "idle"
-                if agent_is_not_idle:
+                if agent.status != "idle":
                     continue
 
-                task_row = self._pick_next_task_for_agent(agent.id)
+                task_row = self._next_task_for(agent.id)
                 if task_row is None:
                     continue
 
@@ -96,7 +95,8 @@ class Manager:
                 mode_label = "research" if research_mode else "task"
                 print(f"[Manager] Assigned to {agent.id} ({mode_label})")
 
-    def _pick_next_task_for_agent(self, agent_id: str) -> dict | None:
+    def _next_task_for(self, agent_id):
+        """Selects the highest-priority queued task for an agent — prefers tasks targeted directly at it."""
         targeted_tasks = db.get_queued_tasks(agent_id=agent_id)
         if targeted_tasks:
             return targeted_tasks[0]
@@ -106,40 +106,3 @@ class Manager:
             return general_tasks[0]
 
         return None
-
-    def split(self, task: str):
-        messages = [
-            {"role": "system", "content": TASK_SPLIT_PROMPT},
-            {"role": "user", "content": task}
-        ]
-        try:
-            result = self.ai.chat(model="qwen3-vl:235b-instruct-cloud", messages=messages)
-            raw_response = result["message"]["content"].strip()
-
-            array_start = raw_response.find("[")
-            array_end = raw_response.rfind("]") + 1
-            json_array_not_found = array_start == -1 or array_end == 0
-
-            if json_array_not_found:
-                print("[Manager] No JSON array in split response")
-                db.add_task(task)
-                return
-
-            subtasks = json.loads(raw_response[array_start:array_end])
-            subtasks_are_valid = isinstance(subtasks, list) and len(subtasks) > 0
-
-            if not subtasks_are_valid:
-                print("[Manager] Invalid subtask format in split response")
-                db.add_task(task)
-                return
-
-            for subtask in subtasks:
-                db.add_task(subtask)
-            print(f"[Manager] Split into {len(subtasks)} subtasks")
-
-        except json.JSONDecodeError as error:
-            print(f"[Manager] JSON parse error: {error}")
-            db.add_task(task)
-        except Exception as error:
-            print(f"[Manager] Split error: {error}")
-            db.add_task(task)

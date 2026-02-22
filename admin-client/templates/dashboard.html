@@ -47,6 +47,7 @@
 <div class="viewModeToggle">
   <button class="viewToggleBtn active" onclick="switchView('single')"><span>Single</span></button>
   <button class="viewToggleBtn" onclick="switchView('supervisor')"><span>Supervisor</span></button>
+  <button class="viewToggleBtn" onclick="switchView('tasks')"><span>Tasks</span></button>
 </div>
 
 <!-- Single Agent View -->
@@ -175,6 +176,20 @@
   </div>
 </div>
 
+
+<!-- Tasks View -->
+<div id="tasksView" class="tasksView">
+  <div class="tasksViewLayout">
+    <div class="tasksSection">
+      <div class="tasksSectionTitle">Tasks</div>
+      <div id="tasksList" class="tasksListContainer"></div>
+    </div>
+    <div class="tasksSection">
+      <div class="tasksSectionTitle">Logs</div>
+      <div id="taskLogsList" class="tasksListContainer"></div>
+    </div>
+  </div>
+</div>
 
 <!-- Floating Actions -->
 <div class="floatingActions">
@@ -316,6 +331,11 @@
           <div class="connectionDot"></div>
         </div>
         <div class="connectionWaitingText">Waiting for agents...</div>
+        <div class="agentTokenBox" id="agentTokenBox">
+          <div class="agentTokenLabel">Bind a machine to your account:</div>
+          <div class="agentTokenCommand" id="agentTokenCommand">python client/client.py --token <span id="agentTokenValue">…</span></div>
+          <button class="agentTokenCopy" onclick="copyAgentToken()">Copy</button>
+        </div>
       </div>
     </div>
     <div class="connectionCredit">© Daniel Reiman. All rights reserved.</div>

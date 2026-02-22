@@ -1,9 +1,34 @@
 import json
 import socket
 import time
+
 import pyautogui
 
+
+# --- Discovery ---
+
 BROADCAST_PORT = 3030
+
+
+def discover(timeout=30):
+    """Listens for a UDP broadcast beacon from the server and returns its IP address."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("", BROADCAST_PORT))
+    sock.settimeout(timeout)
+    try:
+        while True:
+            packet, sender_address = sock.recvfrom(1024)
+            if packet == b"HARMONY_SERVER":
+                return sender_address[0]
+    except socket.timeout:
+        raise RuntimeError(f"No Harmony server found within {timeout}s")
+    finally:
+        sock.close()
+
+
+# --- Actions ---
+
 MOUSE_MOVE_DURATION = 0.35
 TYPE_INTERVAL = 0.02
 HOTKEY_INTERVAL = 0.04
@@ -14,24 +39,8 @@ WAIT_DURATION = 0.35
 ACTIONS_REQUIRING_COORDINATES = {"mouse_move", "left_click", "double_click", "right_click", "click"}
 
 
-def discover(timeout: int = 30) -> str:
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(("", BROADCAST_PORT))
-    sock.settimeout(timeout)
-    try:
-        while True:
-            packet, sender_address = sock.recvfrom(1024)
-            packet_is_harmony_beacon = packet == b"HARMONY_SERVER"
-            if packet_is_harmony_beacon:
-                return sender_address[0]
-    except socket.timeout:
-        raise RuntimeError(f"No Harmony server found within {timeout}s")
-    finally:
-        sock.close()
-
-
-def _normalize_coordinate(coordinate: list, screen_width: int, screen_height: int) -> tuple[int, int]:
+def _normalize_coordinate(coordinate, screen_width, screen_height):
+    """Clamps and scales a 0-1000 coordinate to absolute screen pixels."""
     if coordinate is None or len(coordinate) != 2:
         raise ValueError("Invalid coordinate")
 
@@ -45,7 +54,8 @@ def _normalize_coordinate(coordinate: list, screen_width: int, screen_height: in
     return absolute_x, absolute_y
 
 
-def act(step: dict) -> bool:
+def act(step):
+    """Dispatches and executes a single automation action from a step dict, returning True on success."""
     action = step.get("Next Action")
     value = step.get("Value")
     coordinate = step.get("Coordinate")
@@ -53,8 +63,7 @@ def act(step: dict) -> bool:
     screen_size = pyautogui.size()
     screen_coords = None
 
-    action_requires_coordinates = action in ACTIONS_REQUIRING_COORDINATES
-    if action_requires_coordinates:
+    if action in ACTIONS_REQUIRING_COORDINATES:
         screen_coords = _normalize_coordinate(coordinate, screen_size.width, screen_size.height)
 
     try:
@@ -82,7 +91,10 @@ def act(step: dict) -> bool:
             pyautogui.press(value)
 
         elif action == "hotkey":
-            key_combination = json.loads(value) if isinstance(value, str) else value
+            if isinstance(value, str):
+                key_combination = json.loads(value)
+            else:
+                key_combination = value
             pyautogui.hotkey(*key_combination, interval=HOTKEY_INTERVAL)
 
         elif action == "scroll_up":
@@ -108,7 +120,10 @@ def act(step: dict) -> bool:
         return False
 
 
-def _recv_exact(sock: socket.socket, size: int) -> bytes | None:
+# --- Socket I/O ---
+
+def _read_exact(sock, size):
+    """Reads an exact number of bytes from the socket, returning None if the connection closes early."""
     received = b""
     while len(received) < size:
         chunk = sock.recv(size - len(received))
@@ -118,15 +133,17 @@ def _recv_exact(sock: socket.socket, size: int) -> bytes | None:
     return received
 
 
-def send_json(sock: socket.socket, obj: dict):
+def send_message(sock, obj):
+    """Serializes a dict to JSON and sends it with an 8-byte length prefix over the socket."""
     encoded = json.dumps(obj).encode()
     length_prefix = len(encoded).to_bytes(8, "big")
     sock.sendall(length_prefix)
     sock.sendall(encoded)
 
 
-def recv_json(sock: socket.socket) -> dict | None:
-    size_bytes = _recv_exact(sock, 8)
+def receive_message(sock):
+    """Reads a length-prefixed JSON message from the socket and returns it as a dict."""
+    size_bytes = _read_exact(sock, 8)
     if size_bytes is None:
         return None
 
@@ -134,14 +151,15 @@ def recv_json(sock: socket.socket) -> dict | None:
     if message_size <= 0:
         return None
 
-    data = _recv_exact(sock, message_size)
+    data = _read_exact(sock, message_size)
     if data is None:
         return None
 
     return json.loads(data.decode())
 
 
-def send_file(sock: socket.socket, path: str):
+def send_file(sock, path):
+    """Reads a file from disk and sends its bytes with an 8-byte length prefix over the socket."""
     with open(path, "rb") as f:
         file_bytes = f.read()
     length_prefix = len(file_bytes).to_bytes(8, "big")

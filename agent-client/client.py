@@ -1,20 +1,24 @@
 import os
 import socket
+
 import pyautogui
-from helpers import discover, act, send_json, recv_json, send_file
+
+from helpers import discover, act, send_message, receive_message, send_file
 
 SERVER_PORT = 1222
 RUNTIME_DIR = "./runtime"
 SCREENSHOT_PATH = os.path.join(RUNTIME_DIR, "screenshot.png")
 
 
-def handle_screenshot_request(sock: socket.socket):
+def take_and_send_screenshot(sock):
+    """Takes a screenshot and sends it to the server over the given socket."""
     screenshot = pyautogui.screenshot()
     screenshot.save(SCREENSHOT_PATH)
     send_file(sock, SCREENSHOT_PATH)
 
 
-def handle_action_request(sock: socket.socket, message: dict):
+def run_and_report_action(sock, message):
+    """Executes the action step from the message and sends the result back to the server."""
     step = message.get("step")
     action_succeeded = act(step)
 
@@ -24,7 +28,7 @@ def handle_action_request(sock: socket.socket, message: dict):
         error_message = f"Action '{action_name}' failed to execute"
         print(f"[Client] Action failed: {action_name}")
 
-    send_json(sock, {
+    send_message(sock, {
         "type": "execution_result",
         "success": action_succeeded,
         "error": error_message
@@ -32,6 +36,7 @@ def handle_action_request(sock: socket.socket, message: dict):
 
 
 def main():
+    """Discovers the server, connects, and handles incoming messages in a loop until disconnected."""
     os.makedirs(RUNTIME_DIR, exist_ok=True)
 
     print("[Client] Searching for Harmony server...")
@@ -44,17 +49,17 @@ def main():
 
     try:
         while True:
-            message = recv_json(sock)
+            message = receive_message(sock)
             if message is None:
                 break
 
             message_type = message.get("type")
 
             if message_type == "request_screenshot":
-                handle_screenshot_request(sock)
+                take_and_send_screenshot(sock)
 
             elif message_type == "execute_step":
-                handle_action_request(sock, message)
+                run_and_report_action(sock, message)
 
     finally:
         sock.close()
