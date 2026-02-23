@@ -32,7 +32,7 @@ def main():
     broadcast_thread.start()
     print("[✓] LAN discovery broadcast started (UDP port 3030)")
 
-    manager = Manager(agents, agents_lock)
+    manager = Manager(agents, agents_lock, model=AI_MODEL)
     manager_thread = threading.Thread(target=manager.activate, daemon=True)
     manager_thread.start()
     print("[✓] Task manager started")

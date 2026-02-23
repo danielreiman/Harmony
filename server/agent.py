@@ -9,7 +9,7 @@ import config
 import database as db
 from google_docs import DocManager
 from networking import send, recv, receive_file
-from prompts import RESEARCH_PROMPT, TASK_PROMPT
+from prompts import RESEARCH_BROWSE_PROMPT, RESEARCH_SUMMARIZE_PROMPT, TASK_PROMPT
 
 
 MAX_HISTORY_LENGTH = 30
@@ -36,7 +36,8 @@ class Agent:
 
         self.research_mode = False
         self.doc_id = None
-        self.doc_read = False
+        self.section_label = None
+        self.task_id = None
 
         self.screen_path = os.path.join(RUNTIME_DIR, f"screenshot_{self.id}.png")
         self.task_ready = threading.Event()
@@ -71,7 +72,7 @@ class Agent:
             self.status = "disconnected"
             print(f"[Agent {self.id}] Disconnected")
 
-    def assign(self, task, research_mode=False, doc_id=None):
+    def assign(self, task, research_mode=False, doc_id=None, section_label=None, task_id=None):
         """Sets up the agent's task state and signals it to begin — called by the manager."""
         self.task = task
         self.status = "working"
@@ -80,14 +81,12 @@ class Agent:
         self.phase_count = 0
         self.research_mode = research_mode
         self.doc_id = doc_id
-        self.doc_read = False
+        self.section_label = section_label
+        self.task_id = task_id
 
         if research_mode:
-            system_prompt = RESEARCH_PROMPT
-            user_message = (
-                f"Research this topic and document findings with proper structure: {task}\n"
-                "Use read_doc/write_doc actions"
-            )
+            system_prompt = RESEARCH_BROWSE_PROMPT
+            user_message = f"Research this topic by browsing the web: {task}"
         else:
             system_prompt = TASK_PROMPT
             user_message = f"Execute this task directly (no research needed): {task}"
@@ -165,13 +164,20 @@ class Agent:
             self.phase_count += 1
 
         if self.phase_count > MAX_CYCLES_IN_SAME_PHASE:
-            stuck_hint = (
-                f"You've been on {current_phase} for {self.phase_count} actions. "
-                "Stop repeating the same action; switch phases (SEARCH→READ→WRITE→SEARCH). "
-                "Do not repeat identical searches—move to notes and write_doc."
-            )
+            if self.research_mode:
+                stuck_hint = (
+                    f"You've been on {current_phase} for {self.phase_count} steps. "
+                    "Try something different: search with new keywords, click a different link, "
+                    "or scroll further. When you have gathered info from 2-3 sources, "
+                    "set \"Next Action\": \"None\" to finish browsing."
+                )
+            else:
+                stuck_hint = (
+                    f"You've been on {current_phase} for {self.phase_count} steps. "
+                    "Stop repeating the same action and make progress toward completing the task."
+                )
             self.history.append({"role": "user", "content": stuck_hint})
-            print(f"[Agent {self.id}] Stuck on {current_phase} for {self.phase_count} actions")
+            print(f"[Agent {self.id}] Stuck on {current_phase} for {self.phase_count} steps")
 
     def done(self):
         """Checks if the AI returned a None action, which signals the task is complete."""
@@ -182,20 +188,19 @@ class Agent:
             self.status = "idle"
             self.status_msg = "Done"
             self.save()
+            if self.research_mode and self.doc_id:
+                self._extract_and_write()
 
         return is_done
 
     def act(self, ai_response):
-        """Routes the AI's chosen action to either the doc handler or the client machine."""
+        """Sends the AI's chosen action to the client machine for execution."""
         self.status_msg = self.step.get("status_short", "Acting...")
         self.save()
 
         action = ai_response.get("Next Action")
         value = ai_response.get("Value")
         coordinate = ai_response.get("Coordinate")
-
-        if action in {"read_doc", "write_doc"}:
-            return self._handle_doc_command(action, value)
 
         return self._send_to_client(action, coordinate, value)
 
@@ -283,72 +288,60 @@ class Agent:
             "raw": error_detail
         }
 
-    def _handle_doc_command(self, action, value):
-        """Routes read_doc and write_doc actions to the appropriate handler — silently skips if no doc is configured."""
-        if not self.research_mode or not self.doc_id:
-            return True
+    def _extract_and_write(self):
+        """After browsing finishes, asks the AI to summarize findings and writes them to the doc with professional formatting."""
+        self.status_msg = "Writing findings to doc..."
+        self.save()
+
+        subtopic = self.section_label or self.task
+        summarize_prompt = RESEARCH_SUMMARIZE_PROMPT.replace("{subtopic}", subtopic)
+
+        recent_history = self.history[-20:]
+        messages = [{"role": "system", "content": summarize_prompt}] + recent_history
 
         try:
-            if action == "read_doc":
-                return self._read_doc()
+            result = self.ai.chat(model=self.model, messages=messages)
+            raw = result["message"]["content"].strip()
+            parsed = self._parse_json(raw)
+
+            if parsed:
+                body = parsed.get("body", "")
+                sources = parsed.get("sources", [])
+                bibliography = parsed.get("bibliography", [])
             else:
-                return self._write_doc(value)
+                body = raw
+                sources = []
+                bibliography = []
+
+            if body:
+                self.docs.write_formatted_section(
+                    self.doc_id,
+                    subtopic,
+                    body,
+                    sources,
+                    bibliography,
+                    self.id
+                )
+                print(f"[Agent {self.id}] Wrote findings to doc section: {subtopic[:50]}")
+            else:
+                print(f"[Agent {self.id}] No findings to write")
+
         except Exception as error:
-            self.history.append({"role": "user", "content": f"DOC_ACTION_ERROR: {error}"})
-            self.step["success"] = False
-            self.status_msg = "Doc action failed"
-            self.save()
-            return True
+            print(f"[Agent {self.id}] Extract and write failed: {error}")
 
-    def _read_doc(self):
-        """Reads the current document and injects its text into conversation history so the AI knows what's already written."""
-        snapshot = self.docs.read(self.doc_id)
-        doc_text = snapshot.get("text", "")
-        self.history.append({"role": "user", "content": f"DOC_READ_RESULT ({self.doc_id}):\n{doc_text}"})
-        self.status_msg = "Doc read complete"
-        self.doc_read = True
-        self.step["success"] = True
+        self.status_msg = "Done — section written"
         self.save()
-        return True
 
-    def _write_doc(self, payload):
-        """Writes content to the document and reports the outcome back into history so the AI knows the write succeeded."""
-        if not self.doc_read:
-            self._prefetch_doc()
-
-        insert_index = None
-        dedupe = None
-        if isinstance(payload, dict):
-            insert_index = payload.get("index")
-            dedupe = payload.get("dedupe")
-
-        write_result = self.docs.write(self.doc_id, payload, index=insert_index, dedupe=dedupe)
-
-        skipped = write_result.get("skipped")
-        chars_written = write_result.get("written", 0)
-        updates_applied = write_result.get("replies") or []
-
-        if skipped:
-            write_summary = "skipped duplicate"
-        elif chars_written:
-            write_summary = f"wrote {chars_written} chars"
-        elif updates_applied:
-            write_summary = f"applied {len(updates_applied)} updates"
-        else:
-            write_summary = "write complete"
-
-        self.history.append({"role": "user", "content": f"DOC_WRITE_RESULT ({self.doc_id}): {write_summary}."})
-        self.status_msg = "Doc write complete"
-        self.step["success"] = True
-        self.save()
-        return True
-
-    def _prefetch_doc(self):
-        """Automatically reads the document before a write so the AI has current context without an explicit read_doc step."""
-        snapshot = self.docs.read(self.doc_id)
-        doc_text = snapshot.get("text", "")
-        self.history.append({"role": "user", "content": f"DOC_AUTO_READ ({self.doc_id}):\n{doc_text}"})
-        self.doc_read = True
+        if self.task_id is not None:
+            if bibliography:
+                try:
+                    db.set_task_result(self.task_id, {"bibliography": bibliography})
+                except Exception as error:
+                    print(f"[Agent {self.id}] Failed to save bibliography: {error}")
+            try:
+                db.complete_task(self.task_id)
+            except Exception as error:
+                print(f"[Agent {self.id}] Failed to mark task complete: {error}")
 
     def save(self):
         """Saves the agent's current state to the database."""
