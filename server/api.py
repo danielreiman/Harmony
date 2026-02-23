@@ -8,11 +8,11 @@ import socket
 import threading
 import time
 
+import config
 import database as db
 
-
 RUNTIME_DIR = os.path.join(os.path.dirname(__file__), "runtime")
-SERVICE_ACCOUNT_PATH = os.path.join(os.path.dirname(__file__), "service-account.json")
+SERVICE_ACCOUNT_PATH = config.GOOGLE_SERVICE_ACCOUNT_FILE or ""
 AGENT_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
@@ -159,11 +159,17 @@ def _handle_disconnect_agent(agent_id, req):
 
 def _handle_get_service_account():
     """Reads the service account file and returns whether it exists and what email it uses."""
+    if not SERVICE_ACCOUNT_PATH:
+        print("[API] Service account: no file path resolved")
+        return {"has_key": False, "email": ""}
     try:
         with open(SERVICE_ACCOUNT_PATH) as account_file:
             account_data = json.load(account_file)
-        return {"has_key": True, "email": account_data.get("client_email", "")}
-    except Exception:
+        email = account_data.get("client_email", "")
+        print(f"[API] Service account resolved: {SERVICE_ACCOUNT_PATH} → {email}")
+        return {"has_key": True, "email": email}
+    except Exception as error:
+        print(f"[API] Service account error (path={SERVICE_ACCOUNT_PATH!r}): {error}")
         return {"has_key": False, "email": ""}
 
 

@@ -16,7 +16,6 @@ let errorCount = 0
 let toastTimeout = null
 let lastToastMessage = null
 let lastToastAt = 0
-let agentToken = ''
 
 const maxErrors = 3
 const THEME_STORAGE_KEY = 'harmonyTheme'
@@ -1494,30 +1493,14 @@ function ensureLucideReady(remainingRetries) {
 }
 
 
-async function fetchAgentToken() {
-  try {
-    const resp = await apiFetch('/api/agent-token')
-    if (!resp.ok) return
-    const data = await resp.json()
-    agentToken = data.agent_token || ''
-    const el = getElementById('agentTokenValue')
-    if (el) el.textContent = agentToken || '(unavailable)'
-  } catch (e) { /* silent */ }
-}
-
-function copyAgentToken() {
-  const cmd = 'python client/client.py --token ' + agentToken
-  navigator.clipboard.writeText(cmd)
-    .then(function() { showToast('Launch command copied', 'success') })
-    .catch(function() { showToast('Copy failed', 'error') })
-}
-
 
 async function fetchServiceAccount() {
+  if (serviceAccountInfo.email) return
   try {
     const res = await apiFetch('/api/service-account')
     const data = await res.json()
     serviceAccountInfo = { hasKey: data.has_key || false, email: data.email || "" }
+    populateWorkspaceEmail()
   } catch (_) {}
 }
 
@@ -1529,8 +1512,7 @@ async function initialize() {
 
   try {
     await fetchAgents()
-    fetchAgentToken()
-    fetchServiceAccount()
+    await fetchServiceAccount()
 
     if (currentAgent) {
       await Promise.all([updateState(), refreshScreen()])
@@ -1581,6 +1563,7 @@ scheduleUpdate(function() {
   }
 }, 1500)
 scheduleUpdate(checkServerStatus, 5000)
+scheduleUpdate(fetchServiceAccount, 3000)
 scheduleUpdate(function() {
   if (currentView === 'tasks') {
     return fetchTasksView()

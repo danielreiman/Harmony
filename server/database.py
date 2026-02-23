@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 import sqlite3
 import threading
@@ -16,8 +17,10 @@ def _conn():
     if hasattr(_thread_local, "connection"):
         return _thread_local.connection
 
-    connection = sqlite3.connect(DB_PATH, timeout=10)
+    connection = sqlite3.connect(DB_PATH, timeout=30)
     connection.execute("PRAGMA journal_mode=WAL")
+    connection.execute("PRAGMA busy_timeout=30000")
+    connection.execute("PRAGMA synchronous=NORMAL")
     connection.execute("PRAGMA foreign_keys=ON")
     connection.row_factory = sqlite3.Row
     _thread_local.connection = connection
@@ -52,7 +55,10 @@ def _setup_tables(connection):
             status TEXT NOT NULL DEFAULT 'queued',
             assigned_agent TEXT,
             created_at REAL NOT NULL,
-            user_id INTEGER
+            user_id INTEGER,
+            section_label TEXT,
+            parent_task_id INTEGER,
+            result_json TEXT
         );
 
         CREATE TABLE IF NOT EXISTS agents (
@@ -88,6 +94,16 @@ def _setup_tables(connection):
         );
     """)
     connection.commit()
+
+    # Schema migrations — safe to run on existing databases
+    for migration in [
+        "ALTER TABLE tasks ADD COLUMN result_json TEXT",
+    ]:
+        try:
+            connection.execute(migration)
+            connection.commit()
+        except Exception:
+            pass  # Column already exists
 
 
 def init_db():
@@ -171,23 +187,23 @@ def set_command(agent_id, command):
 
 # --- Tasks ---
 
-def add_task(task, research_mode=False, doc_id=None, user_id=None):
+def add_task(task, research_mode=False, doc_id=None, user_id=None, section_label=None, parent_task_id=None):
     """Inserts a general queued task that the manager will assign to the next idle agent."""
     connection = _conn()
     cursor = connection.execute(
-        "INSERT INTO tasks (task, research_mode, doc_id, status, created_at, user_id) VALUES (?, ?, ?, 'queued', ?, ?)",
-        (task, int(research_mode), doc_id, time.time(), user_id)
+        "INSERT INTO tasks (task, research_mode, doc_id, status, created_at, user_id, section_label, parent_task_id) VALUES (?, ?, ?, 'queued', ?, ?, ?, ?)",
+        (task, int(research_mode), doc_id, time.time(), user_id, section_label, parent_task_id)
     )
     connection.commit()
     return cursor.lastrowid
 
 
-def add_task_for_agent(task, agent_id, research_mode=False, doc_id=None, user_id=None):
+def add_task_for_agent(task, agent_id, research_mode=False, doc_id=None, user_id=None, section_label=None, parent_task_id=None):
     """Inserts a task pre-assigned to a specific agent so the manager routes it directly."""
     connection = _conn()
     cursor = connection.execute(
-        "INSERT INTO tasks (task, research_mode, doc_id, status, assigned_agent, created_at, user_id) VALUES (?, ?, ?, 'queued', ?, ?, ?)",
-        (task, int(research_mode), doc_id, agent_id, time.time(), user_id)
+        "INSERT INTO tasks (task, research_mode, doc_id, status, assigned_agent, created_at, user_id, section_label, parent_task_id) VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?)",
+        (task, int(research_mode), doc_id, agent_id, time.time(), user_id, section_label, parent_task_id)
     )
     connection.commit()
     return cursor.lastrowid
@@ -198,12 +214,12 @@ def get_queued_tasks(agent_id=None):
     connection = _conn()
     if agent_id:
         rows = connection.execute(
-            "SELECT id, task, research_mode, doc_id, assigned_agent FROM tasks WHERE status = 'queued' AND assigned_agent = ? ORDER BY id",
+            "SELECT id, task, research_mode, doc_id, assigned_agent, section_label, parent_task_id FROM tasks WHERE status = 'queued' AND assigned_agent = ? ORDER BY id",
             (agent_id,)
         ).fetchall()
     else:
         rows = connection.execute(
-            "SELECT id, task, research_mode, doc_id, assigned_agent FROM tasks WHERE status = 'queued' AND assigned_agent IS NULL ORDER BY id"
+            "SELECT id, task, research_mode, doc_id, assigned_agent, section_label, parent_task_id FROM tasks WHERE status = 'queued' AND assigned_agent IS NULL ORDER BY id"
         ).fetchall()
     result = []
     for row in rows:
@@ -251,6 +267,67 @@ def assign_task(task_id, agent_id):
         (agent_id, task_id)
     )
     connection.commit()
+
+
+def complete_task(task_id):
+    """Marks a task as complete — called by the manager after the agent finishes."""
+    connection = _conn()
+    connection.execute("UPDATE tasks SET status = 'complete' WHERE id = ?", (task_id,))
+    connection.commit()
+
+
+def mark_task_split(task_id):
+    """Marks a parent research task as split so the manager ignores it in future dispatch loops."""
+    connection = _conn()
+    connection.execute("UPDATE tasks SET status = 'split' WHERE id = ?", (task_id,))
+    connection.commit()
+
+
+def get_task_by_id(task_id):
+    """Fetches a single task row by its ID."""
+    connection = _conn()
+    row = connection.execute(
+        "SELECT id, task, research_mode, doc_id, status, assigned_agent, user_id, section_label, parent_task_id, result_json FROM tasks WHERE id = ?",
+        (task_id,)
+    ).fetchone()
+    if row:
+        return dict(row)
+    return None
+
+
+def set_task_result(task_id, data):
+    """Stores a result JSON blob for a completed task (e.g., bibliography entries from a research agent)."""
+    connection = _conn()
+    connection.execute(
+        "UPDATE tasks SET result_json = ? WHERE id = ?",
+        (json.dumps(data), task_id)
+    )
+    connection.commit()
+
+
+def get_subtasks(parent_task_id):
+    """Fetches all sub-tasks belonging to a parent research task."""
+    connection = _conn()
+    rows = connection.execute(
+        "SELECT id, task, research_mode, doc_id, status, assigned_agent, section_label, result_json FROM tasks WHERE parent_task_id = ? ORDER BY id",
+        (parent_task_id,)
+    ).fetchall()
+    result = []
+    for row in rows:
+        result.append(dict(row))
+    return result
+
+
+def get_split_tasks():
+    """Fetches all parent research tasks that have been split into subtasks."""
+    connection = _conn()
+    rows = connection.execute(
+        "SELECT id, task, doc_id FROM tasks WHERE status = 'split' ORDER BY id"
+    ).fetchall()
+    result = []
+    for row in rows:
+        result.append(dict(row))
+    return result
 
 
 # --- Users ---
