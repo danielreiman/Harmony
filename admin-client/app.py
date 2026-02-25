@@ -152,14 +152,12 @@ def send_task():
     task_text = body.get("task", "")
     agent_id = body.get("agent_id")
     research_mode = body.get("research_mode", False)
-    doc_id = body.get("doc_id")
 
     task_result = proxy.request(
         "send_task",
         task=task_text,
         agent_id=agent_id,
         research_mode=research_mode,
-        doc_id=doc_id,
         user_id=request.user_id,
     )
     return jsonify(task_result)
@@ -174,13 +172,12 @@ def get_tasks():
     return jsonify(task_list)
 
 
-@app.route("/api/task-logs")
+@app.route("/api/tasks/<int:task_id>", methods=["DELETE"])
 @require_auth
-def get_task_logs():
-    """Returns recent task log events for the current user as JSON for the dashboard activity feed."""
-    logs_result = proxy.request("get_task_logs", user_id=request.user_id)
-    log_list = logs_result.get("logs", [])
-    return jsonify(log_list)
+def delete_task(task_id):
+    """Deletes a task and its subtasks if it belongs to the current user."""
+    result = proxy.request("delete_task", task_id=task_id, user_id=request.user_id)
+    return jsonify(result)
 
 
 # --- Control Routes ---
@@ -192,11 +189,11 @@ def api_status():
     return jsonify({"ok": server_is_reachable})
 
 
-@app.route("/api/service-account")
+@app.route("/api/research/<int:task_id>")
 @require_auth
-def service_account():
-    """Returns whether a Google service account is configured and its email address."""
-    result = proxy.request("get_service_account")
+def get_research_report(task_id):
+    """Returns the research report (parent task + all subtask findings) for the results panel."""
+    result = proxy.request("get_research_report", task_id=task_id)
     return jsonify(result)
 
 

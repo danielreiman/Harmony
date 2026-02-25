@@ -19,7 +19,6 @@ __pycache__/
 CLAUDE.md
 .claude
 
-server/service-account.json
 server/harmony.db
 server/harmony.db-wal
 server/harmony.db-shm
