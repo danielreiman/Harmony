@@ -51,6 +51,7 @@ class Agent:
 
     def activate(self):
         """Waits for task assignments and runs them in a loop — the manager signals this via task_ready."""
+        send({"type": "connected", "agent_id": self.id}, self.conn)
         try:
             while True:
                 self.task_ready.wait()
@@ -185,7 +186,7 @@ class Agent:
             self.status_msg = "Done"
             self.save()
             if self.research_mode:
-                self._extract_and_save()
+                self.extract_and_save()
 
         return is_done
 
@@ -198,9 +199,9 @@ class Agent:
         value = ai_response.get("Value")
         coordinate = ai_response.get("Coordinate")
 
-        return self._send_to_client(action, coordinate, value)
+        return self.send_to_client(action, coordinate, value)
 
-    def _send_to_client(self, action, coordinate, value):
+    def send_to_client(self, action, coordinate, value):
         """Sends an action command to the client machine and waits for the execution result."""
         command = {"Next Action": action, "Coordinate": coordinate, "Value": value}
         sent = send({"type": "execute_step", "step": command}, self.conn)
@@ -223,12 +224,12 @@ class Agent:
         self.save()
 
         try:
-            return self._query_ai()
+            return self.query_ai()
         except Exception as error:
             print(f"[Agent {self.id}] AI error: {error}")
-            return self._error_step(str(error))
+            return self.error_step(str(error))
 
-    def _query_ai(self):
+    def query_ai(self):
         """Sends the trimmed conversation history to the AI model and parses the JSON response."""
         initial_messages = self.history[:2]
         all_recent_messages = self.history[2:]
@@ -240,15 +241,15 @@ class Agent:
 
         print(f"[Agent {self.id}] AI response: {raw_text}")
 
-        parsed = self._parse_json(raw_text)
+        parsed = self.parse_json(raw_text)
         if parsed is None:
-            return self._error_step("No valid JSON found in AI response")
+            return self.error_step("No valid JSON found in AI response")
 
         parsed["raw"] = raw_text
-        self._record_ai_reply(raw_text)
+        self.record_ai_reply(raw_text)
         return parsed
 
-    def _parse_json(self, text):
+    def parse_json(self, text):
         """Finds and parses the first JSON object in the AI's raw text output."""
         json_start = text.find("{")
         last_brace = text.rfind("}")
@@ -263,7 +264,7 @@ class Agent:
         except json.JSONDecodeError:
             return None
 
-    def _record_ai_reply(self, raw_text):
+    def record_ai_reply(self, raw_text):
         """Strips the image from the last history entry and appends the assistant's reply so the next call includes it."""
         if self.history:
             last_message = self.history[-1]
@@ -273,7 +274,7 @@ class Agent:
             last_message.pop("images")
         self.history.append({"role": "assistant", "content": raw_text})
 
-    def _error_step(self, error_detail):
+    def error_step(self, error_detail):
         """Builds a safe no-op response when the AI call fails so the agent loop can continue gracefully."""
         current_phase = self.phase or "EXECUTE"
         return {
@@ -284,7 +285,7 @@ class Agent:
             "raw": error_detail
         }
 
-    def _extract_and_save(self):
+    def extract_and_save(self):
         """After browsing finishes, asks the AI to summarize findings and saves them to the database."""
         self.status_msg = "Summarizing findings..."
         self.save()
@@ -298,7 +299,7 @@ class Agent:
         try:
             result = self.ai.chat(model=self.model, messages=messages)
             raw = result["message"]["content"].strip()
-            parsed = self._parse_json(raw)
+            parsed = self.parse_json(raw)
 
             if parsed:
                 body = parsed.get("body", "")
@@ -344,9 +345,9 @@ class Agent:
             "phase": self.phase,
             "phase_count": self.phase_count,
         }
-        self._persist_to_db(state)
+        self.persist_to_db(state)
 
-    def _persist_to_db(self, state):
+    def persist_to_db(self, state):
         """Writes the agent's current state fields to the database so the API can serve them without reading the soul file."""
         if state["step"]:
             step_json = json.dumps(state["step"], ensure_ascii=False)
