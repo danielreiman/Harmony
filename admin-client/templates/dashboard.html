@@ -47,7 +47,6 @@
 <div class="viewModeToggle">
   <button class="viewToggleBtn active" onclick="switchView('single')"><span>Single</span></button>
   <button class="viewToggleBtn" onclick="switchView('supervisor')"><span>Supervisor</span></button>
-  <button class="viewToggleBtn" onclick="switchView('tasks')"><span>Tasks</span></button>
 </div>
 
 <!-- Single Agent View -->
@@ -123,12 +122,10 @@
 
 <!-- Supervisor View -->
 <div id="supervisorView" class="supervisorView">
-
-
   <div class="agentsGrid" id="supervisorGrid">
     <!-- Agent tiles will be populated here -->
   </div>
-  
+
   <!-- Empty State View -->
   <div class="emptyState" id="emptyState" style="display: none;">
     <div class="emptyStateContent">
@@ -136,10 +133,10 @@
         <i data-lucide="monitor" class="emptyStateIconLarge"></i>
         <i data-lucide="plus" class="emptyStateIconPlus"></i>
       </div>
-      
+
       <div class="emptyStateTitle">No Agents Connected</div>
       <div class="emptyStateSubtitle">Ready to orchestrate intelligent automation across your network</div>
-      
+
       <div class="emptyStateInstructions">
         <div class="emptyStateStep">
           <div class="emptyStateStepNumber">1</div>
@@ -148,7 +145,7 @@
             <div class="emptyStateStepText">Run <code>python client/client.py</code> on target computers</div>
           </div>
         </div>
-        
+
         <div class="emptyStateStep">
           <div class="emptyStateStepNumber">2</div>
           <div class="emptyStateStepContent">
@@ -156,7 +153,7 @@
             <div class="emptyStateStepText">Agents will automatically discover and connect to this server</div>
           </div>
         </div>
-        
+
         <div class="emptyStateStep">
           <div class="emptyStateStepNumber">3</div>
           <div class="emptyStateStepContent">
@@ -165,7 +162,7 @@
           </div>
         </div>
       </div>
-      
+
       <div class="emptyStateFooter">
         <div class="emptyStateNote">
           <i data-lucide="info" class="emptyStateNoteIcon"></i>
@@ -177,58 +174,6 @@
 </div>
 
 
-<!-- Tasks View -->
-<div id="tasksView" class="tasksView">
-  <div class="tasksViewLayout">
-    <div class="tasksSection">
-      <div class="tasksSectionTitle">Tasks</div>
-      <div id="tasksList" class="tasksListContainer"></div>
-    </div>
-    <div class="tasksSection">
-      <div class="tasksSectionTitle">Logs</div>
-      <div id="taskLogsList" class="tasksListContainer"></div>
-    </div>
-  </div>
-</div>
-
-<!-- Floating Actions -->
-<div class="floatingActions">
-  <button class="workspaceButton" id="workspaceBtn" title="Workspace" onclick="toggleWorkspacePanel()">
-    Workspace
-  </button>
-  <div class="workspacePanel" id="workspacePanel">
-    <div class="workspacePanelHeader">
-      <div class="workspaceHeaderLeft">
-        <div class="workspaceBadge">
-          <i data-lucide="sparkles"></i>
-          <span>Experimental</span>
-        </div>
-        <div class="workspacePanelTitle">Shared Workspace</div>
-      </div>
-      <button class="workspacePanelClose" onclick="closeWorkspacePanel()" aria-label="Close workspace panel">✕</button>
-    </div>
-    <div class="workspacePanelSub">Shared doc for all agents to research together.</div>
-    <div class="workspacePanelInfo" id="workspaceKeyInfo"></div>
-    <div class="workspaceField">
-      <label for="workspaceUrlInput">Google Docs URL</label>
-      <input type="text" id="workspaceUrlInput" class="workspaceInput" placeholder="https://...your-shared-doc..." />
-    </div>
-    <div class="workspaceField workspaceEmailField">
-      <div class="workspaceFieldTop">
-        <label>Agent Email</label>
-        <button class="copyEmailBtn" onclick="copyWorkspaceEmail()">Copy</button>
-      </div>
-      <div class="workspaceEmail" id="workspaceEmail"></div>
-    </div>
-    <div class="workspaceHint">
-      In your shared document, click “Share” and add this email as Editor so agents can write via API.<br>
-      Need a service account file? <a href="https://blog.dataengineerthings.org/setting-up-a-google-cloud-service-account-with-json-key-for-authentication-d673e10ea8e7" target="_blank" rel="noreferrer">Follow this guide</a>.
-    </div>
-    <div class="workspaceActions">
-      <button class="workspaceSave" onclick="saveWorkspace()">Save</button>
-    </div>
-  </div>
-</div>
 
 <!-- Prompt Section -->
 <div class="promptSection" id="promptSection">
@@ -253,25 +198,29 @@
   </div>
 </div>
 
-<!-- Results Modal -->
-<div class="resultsModal" id="resultsModal">
-  <div class="resultsModalContent">
-    <div class="resultsModalHeader">
-      <h2 class="resultsModalTitle">Automation Results</h2>
-      <button class="resultsModalClose" onclick="closeResultsModal()">✕</button>
+<!-- Research Results Modal -->
+<div class="researchModal" id="researchModal">
+  <div class="researchModalContent">
+    <div class="researchModalHeader">
+      <h2 class="researchModalTitle" id="researchModalTitle">Research Report</h2>
+      <button class="researchModalClose" onclick="closeResearchModal()">✕</button>
     </div>
-    <div class="resultsModalBody">
-      <p>Your automation session results will be displayed here once the feature is fully implemented.</p>
-      
-      <div class="resultsFeature">
-        <strong>Coming Soon:</strong> Detailed automation reports with step-by-step execution logs, screenshots, and performance metrics.
-      </div>
-      
-      <div class="resultsFeature">
-        <strong>Future Features:</strong> Export results as PDF, CSV, or JSON formats for further analysis and record keeping.
-      </div>
-      
-      <p>This comprehensive results view will help you analyze the effectiveness of your automation tasks and optimize future workflows.</p>
+    <div class="researchModalBody" id="researchModalBody">
+      <div class="researchLoading">Loading...</div>
+    </div>
+  </div>
+</div>
+
+<!-- Floating Actions -->
+<div class="floatingActions">
+  <button class="tasksButton" id="tasksBtn" onclick="toggleTasksPanel()">Tasks</button>
+  <div class="tasksPanel" id="tasksPanel">
+    <div class="tasksPanelHeader">
+      <span class="tasksPanelTitle">Tasks</span>
+      <button class="tasksPanelClose" onclick="closeTasksPanel()">✕</button>
+    </div>
+    <div class="tasksPanelBody" id="tasksPanelBody">
+      <div class="tasksEmptyState">Loading...</div>
     </div>
   </div>
 </div>
@@ -281,13 +230,6 @@
   <i data-lucide="info"></i>
   <span id="toastMessage">Message</span>
 </div>
-
-<script>
-  window.harmonyServiceAccount = {
-    hasKey: {{ 'true' if service_account_present else 'false' }},
-    email: {{ service_account_email|tojson }}
-  };
-</script>
 
 <!-- Custom Alert Modal -->
 <div class="customAlert" id="customAlert">
@@ -340,7 +282,6 @@
 <div class="creditFooter">© Daniel Reiman. All rights reserved.</div>
 
 <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
-
 
 </body>
 </html>

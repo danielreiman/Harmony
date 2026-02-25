@@ -8,11 +8,9 @@ import socket
 import threading
 import time
 
-import config
 import database as db
 
 RUNTIME_DIR = os.path.join(os.path.dirname(__file__), "runtime")
-SERVICE_ACCOUNT_PATH = config.GOOGLE_SERVICE_ACCOUNT_FILE or ""
 AGENT_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
@@ -106,14 +104,13 @@ def _handle_send_task(req):
     task_text = req.get("task", "").strip()
     agent_id = req.get("agent_id")
     research_mode = req.get("research_mode", False)
-    doc_id = req.get("doc_id")
     user_id = req.get("user_id")
 
     if not task_text:
         return {"error": "Task is required"}
 
     if not agent_id:
-        db.add_task(task_text, research_mode=research_mode, doc_id=doc_id, user_id=user_id)
+        db.add_task(task_text, research_mode=research_mode, user_id=user_id)
         return {"success": True, "message": "Task added to queue"}
 
     agent = db.get_agent(agent_id)
@@ -123,7 +120,7 @@ def _handle_send_task(req):
     agent_status = agent["status"]
 
     if agent_status == "idle":
-        db.add_task_for_agent(task_text, agent_id, research_mode=research_mode, doc_id=doc_id, user_id=user_id)
+        db.add_task_for_agent(task_text, agent_id, research_mode=research_mode, user_id=user_id)
         return {"success": True, "message": f"Task queued for {agent_id}"}
 
     if agent_status == "working":
@@ -138,7 +135,7 @@ def _handle_stop_agent(agent_id, req):
     if not _is_valid_agent_id(agent_id):
         return {"error": "Invalid agent id"}
 
-    db.set_command(agent_id, "stop_requested")
+    db.set_agent_command(agent_id, "stop_requested")
     return {"success": True}
 
 
@@ -147,7 +144,7 @@ def _handle_disconnect_agent(agent_id, req):
     if not _is_valid_agent_id(agent_id):
         return {"error": "Invalid agent id"}
 
-    db.set_command(agent_id, "disconnect_requested")
+    db.set_agent_command(agent_id, "disconnect_requested")
 
     try:
         os.remove(os.path.join(RUNTIME_DIR, f"screenshot_{agent_id}.png"))
@@ -155,22 +152,6 @@ def _handle_disconnect_agent(agent_id, req):
         pass
 
     return {"success": True}
-
-
-def _handle_get_service_account():
-    """Reads the service account file and returns whether it exists and what email it uses."""
-    if not SERVICE_ACCOUNT_PATH:
-        print("[API] Service account: no file path resolved")
-        return {"has_key": False, "email": ""}
-    try:
-        with open(SERVICE_ACCOUNT_PATH) as account_file:
-            account_data = json.load(account_file)
-        email = account_data.get("client_email", "")
-        print(f"[API] Service account resolved: {SERVICE_ACCOUNT_PATH} → {email}")
-        return {"has_key": True, "email": email}
-    except Exception as error:
-        print(f"[API] Service account error (path={SERVICE_ACCOUNT_PATH!r}): {error}")
-        return {"has_key": False, "email": ""}
 
 
 def _handle_stop_server():
@@ -193,10 +174,22 @@ def _handle_get_tasks(req):
     return {"tasks": db.get_tasks_for_user(user_id)}
 
 
-def _handle_get_task_logs(req):
-    """Fetches recent task log entries for the requesting user to display in the dashboard activity feed."""
+def _handle_get_research_report(req):
+    """Returns the parent task and all subtask findings for the dashboard results panel."""
+    task_id = req.get("task_id")
+    if not task_id:
+        return {"error": "task_id is required"}
+    return db.get_research_report(int(task_id))
+
+
+def _handle_delete_task(req):
+    """Deletes a task and its subtasks, only if the task belongs to the requesting user."""
+    task_id = req.get("task_id")
     user_id = req.get("user_id")
-    return {"logs": db.get_task_logs_for_user(user_id)}
+    if not task_id:
+        return {"error": "task_id is required"}
+    deleted = db.delete_task(int(task_id), user_id)
+    return {"success": deleted}
 
 
 # --- Auth Handlers ---
@@ -226,7 +219,7 @@ def _handle_auth_signup(req):
 
 
 def _handle_auth_validate(req):
-    """Validates a session token and returns the user's ID, username, and agent token for the dashboard."""
+    """Validates a session token and returns the user's ID and username for the dashboard."""
     token = req.get("token", "")
 
     user_id = db.validate_session(token)
@@ -268,10 +261,10 @@ def _route_request(req):
         return _handle_stop_server()
     if action == "get_tasks":
         return _handle_get_tasks(req)
-    if action == "get_task_logs":
-        return _handle_get_task_logs(req)
-    if action == "get_service_account":
-        return _handle_get_service_account()
+    if action == "get_research_report":
+        return _handle_get_research_report(req)
+    if action == "delete_task":
+        return _handle_delete_task(req)
     if action == "auth_login":
         return _handle_auth_login(req)
     if action == "auth_signup":

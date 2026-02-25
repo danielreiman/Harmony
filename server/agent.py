@@ -7,7 +7,6 @@ from ollama import Client
 
 import config
 import database as db
-from google_docs import DocManager
 from networking import send, recv, receive_file
 from prompts import RESEARCH_BROWSE_PROMPT, RESEARCH_SUMMARIZE_PROMPT, TASK_PROMPT
 
@@ -19,7 +18,7 @@ RUNTIME_DIR = os.path.join(os.path.dirname(__file__), "runtime")
 
 class Agent:
     def __init__(self, id, model, conn):
-        """Sets up the agent with its ID, AI client, doc manager, and all runtime state fields."""
+        """Sets up the agent with its ID, AI client, and all runtime state fields."""
         self.id = id
         self.model = model
         self.conn = conn
@@ -35,7 +34,6 @@ class Agent:
         self.history = []
 
         self.research_mode = False
-        self.doc_id = None
         self.section_label = None
         self.task_id = None
 
@@ -49,7 +47,6 @@ class Agent:
             raise RuntimeError("OLLAMA_API_KEY not found")
 
         self.ai = Client(host="https://ollama.com", headers={"Authorization": f"Bearer {api_key}"})
-        self.docs = DocManager(config.GOOGLE_SERVICE_ACCOUNT_FILE)
         self.save()
 
     def activate(self):
@@ -72,7 +69,7 @@ class Agent:
             self.status = "disconnected"
             print(f"[Agent {self.id}] Disconnected")
 
-    def assign(self, task, research_mode=False, doc_id=None, section_label=None, task_id=None):
+    def assign(self, task, research_mode=False, section_label=None, task_id=None):
         """Sets up the agent's task state and signals it to begin — called by the manager."""
         self.task = task
         self.status = "working"
@@ -80,7 +77,6 @@ class Agent:
         self.phase = None
         self.phase_count = 0
         self.research_mode = research_mode
-        self.doc_id = doc_id
         self.section_label = section_label
         self.task_id = task_id
 
@@ -188,8 +184,8 @@ class Agent:
             self.status = "idle"
             self.status_msg = "Done"
             self.save()
-            if self.research_mode and self.doc_id:
-                self._extract_and_write()
+            if self.research_mode:
+                self._extract_and_save()
 
         return is_done
 
@@ -288,9 +284,9 @@ class Agent:
             "raw": error_detail
         }
 
-    def _extract_and_write(self):
-        """After browsing finishes, asks the AI to summarize findings and writes them to the doc with professional formatting."""
-        self.status_msg = "Writing findings to doc..."
+    def _extract_and_save(self):
+        """After browsing finishes, asks the AI to summarize findings and saves them to the database."""
+        self.status_msg = "Summarizing findings..."
         self.save()
 
         subtopic = self.section_label or self.task
@@ -313,31 +309,23 @@ class Agent:
                 sources = []
                 bibliography = []
 
-            if body:
-                self.docs.write_formatted_section(
-                    self.doc_id,
-                    subtopic,
-                    body,
-                    sources,
-                    bibliography,
-                    self.id
-                )
-                print(f"[Agent {self.id}] Wrote findings to doc section: {subtopic[:50]}")
+            if self.task_id is not None:
+                db.set_task_result(self.task_id, {
+                    "body": body,
+                    "sources": sources,
+                    "bibliography": bibliography,
+                })
+                print(f"[Agent {self.id}] Saved findings for: {subtopic[:50]}")
             else:
-                print(f"[Agent {self.id}] No findings to write")
+                print(f"[Agent {self.id}] No task_id — findings not saved")
 
         except Exception as error:
-            print(f"[Agent {self.id}] Extract and write failed: {error}")
+            print(f"[Agent {self.id}] Extract and save failed: {error}")
 
-        self.status_msg = "Done — section written"
+        self.status_msg = "Done"
         self.save()
 
         if self.task_id is not None:
-            if bibliography:
-                try:
-                    db.set_task_result(self.task_id, {"bibliography": bibliography})
-                except Exception as error:
-                    print(f"[Agent {self.id}] Failed to save bibliography: {error}")
             try:
                 db.complete_task(self.task_id)
             except Exception as error:
@@ -351,7 +339,6 @@ class Agent:
             "task": self.task,
             "status_text": self.status_msg,
             "research_mode": self.research_mode,
-            "doc_id": self.doc_id,
             "step": self.step,
             "cycle": self.cycles,
             "phase": self.phase,
@@ -372,7 +359,6 @@ class Agent:
                 task=state["task"],
                 status_text=state["status_text"],
                 research_mode=int(state["research_mode"]),
-                doc_id=state["doc_id"],
                 step_json=step_json,
                 cycle=state["cycle"],
                 phase=state["phase"],

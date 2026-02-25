@@ -1,1571 +1,686 @@
-function getElementById(id) {
-  return document.getElementById(id)
-}
+// ── State ──────────────────────────────────────────────────────────────────────
+function el(id) { return document.getElementById(id) }
 
-let currentAgent = null
-let lastScreenshotUrl = null
-let currentView = 'single'
-let researchModeEnabled = false
-let agentsList = []
-let lastAgentData = []
-let agentTileElements = {}
-let isInitialized = false
-let shuttingDown = false
-let serverUnavailable = false
-let errorCount = 0
-let toastTimeout = null
-let lastToastMessage = null
-let lastToastAt = 0
+let currentAgent = null, lastScreenshotUrl = null, currentView = 'single'
+let researchModeEnabled = false, agentsList = [], lastAgentData = []
+let agentTileElements = {}, isInitialized = false
+let shuttingDown = false, serverUnavailable = false, errorCount = 0
+let currentResearchTaskId = null, researchPollInterval = null, tasksPanelPollInterval = null
 
-const maxErrors = 3
-const THEME_STORAGE_KEY = 'harmonyTheme'
-const DEFAULT_THEME = 'carbon'
-
-let serviceAccountInfo = { hasKey: false, email: "" }
-
-const _storedToken = localStorage.getItem('token')
-if (!_storedToken) {
-  window.location.href = '/login'
-}
+const THEME_KEY = 'harmonyTheme'
+if (!localStorage.getItem('token')) window.location.href = '/login'
 
 
-function normalizeServerBase(raw) {
-  if (!raw) return null
-
-  const trimmed = raw.trim().replace(/\/+$/, '')
-  if (!trimmed) return null
-
-  const alreadyHasProtocol = /^https?:\/\//i.test(trimmed)
-  if (alreadyHasProtocol) return trimmed
-
-  return `http://${trimmed}`
-}
-
-
-const apiBases = (function buildApiBases() {
+// ── API Bases ──────────────────────────────────────────────────────────────────
+const apiBases = (() => {
   const bases = []
-
-  const serverParam = new URLSearchParams(window.location.search).get('server')
-  const normalizedServerParam = normalizeServerBase(serverParam)
-  if (normalizedServerParam) {
-    bases.push(normalizedServerParam)
+  const serverParam = new URLSearchParams(location.search).get('server')
+  if (serverParam) {
+    const t = serverParam.trim().replace(/\/+$/, '')
+    bases.push(/^https?:\/\//i.test(t) ? t : `http://${t}`)
   }
-
-  const isFileProtocol = window.location.protocol === 'file:'
-  if (isFileProtocol) {
-    bases.push('http://localhost:1234')
-    bases.push('http://127.0.0.1:1234')
+  if (location.protocol === 'file:') {
+    bases.push('http://localhost:1234', 'http://127.0.0.1:1234')
   } else {
-    bases.push(window.location.origin)
-    const isNotOnDashboardPort = window.location.port !== '1234'
-    const hasHostname = !!window.location.hostname
-    if (isNotOnDashboardPort && hasHostname) {
-      bases.push(`${window.location.protocol}//${window.location.hostname}:1234`)
-    }
+    bases.push(location.origin)
+    if (location.port !== '1234' && location.hostname)
+      bases.push(`${location.protocol}//${location.hostname}:1234`)
   }
-
-  return Array.from(new Set(bases))
+  return [...new Set(bases)]
 })()
 
 
-function applyTheme(theme) {
-  const isCarbonTheme = theme === 'carbon'
-  document.body.classList.toggle('theme-carbon', isCarbonTheme)
+// ── Theme ──────────────────────────────────────────────────────────────────────
+function applyTheme(t) { document.body.classList.toggle('theme-carbon', t === 'carbon') }
+function initTheme() { try { applyTheme(localStorage.getItem(THEME_KEY) || 'carbon') } catch { applyTheme('carbon') } }
+window.setHarmonyTheme = t => {
+  t === 'default' ? localStorage.removeItem(THEME_KEY) : localStorage.setItem(THEME_KEY, t)
+  applyTheme(t)
 }
-
-function initTheme() {
-  try {
-    const storedTheme = localStorage.getItem(THEME_STORAGE_KEY)
-    applyTheme(storedTheme || DEFAULT_THEME)
-  } catch (storageError) {
-    applyTheme(DEFAULT_THEME)
-  }
-}
-
-window.setHarmonyTheme = function(theme) {
-  const normalizedTheme = theme === 'default' ? 'default' : 'carbon'
-  const isDefaultTheme = normalizedTheme === 'default'
-  if (isDefaultTheme) {
-    localStorage.removeItem(THEME_STORAGE_KEY)
-  } else {
-    localStorage.setItem(THEME_STORAGE_KEY, normalizedTheme)
-  }
-  applyTheme(normalizedTheme)
-}
-
 initTheme()
 
 
-async function apiFetch(path, options) {
-  if (!options) {
-    options = {}
-  }
-  if (!options.headers) {
-    options.headers = {}
-  }
+// ── Fetch ──────────────────────────────────────────────────────────────────────
+async function apiFetch(path, opts = {}) {
+  opts.headers = opts.headers || {}
   const token = localStorage.getItem('token')
-  if (token) {
-    options.headers['Authorization'] = 'Bearer ' + token
-  }
-
-  let lastError = null
+  if (token) opts.headers['Authorization'] = 'Bearer ' + token
+  let lastErr
   for (const base of apiBases) {
     try {
-      const response = await fetch(`${base}${path}`, options)
-      if (response.status === 401) {
-        localStorage.removeItem('token')
-        if (!shuttingDown) {
-          window.location.href = '/login'
-        }
-        return response
-      }
-      return response
-    } catch (fetchError) {
-      lastError = fetchError
-    }
+      const res = await fetch(`${base}${path}`, opts)
+      if (res.status === 401) { localStorage.removeItem('token'); if (!shuttingDown) location.href = '/login' }
+      return res
+    } catch (e) { lastErr = e }
   }
-  throw lastError || new Error('Network error')
+  throw lastErr || new Error('Network error')
 }
 
 
-function extractCoordinatesFromArray(coordinateArray) {
-  const isValidArray = Array.isArray(coordinateArray) && coordinateArray.length === 2
-  if (isValidArray) {
-    return { x: coordinateArray[0], y: coordinateArray[1] }
-  }
-  return { x: null, y: null }
+// ── Helpers ────────────────────────────────────────────────────────────────────
+function escapeHtml(t) {
+  return String(t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
+function truncateText(t, max) { return !t ? '' : t.length > max ? t.slice(0, max - 1) + '…' : t }
+function formatRelativeTime(unix) {
+  const s = Math.floor(Date.now() / 1000) - unix
+  if (s < 60) return 'just now'
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`
+  if (s < 86400) return `${Math.floor(s / 3600)} hr ago`
+  if (s < 172800) return 'yesterday'
+  return `${Math.floor(s / 86400)} days ago`
+}
+function refreshLucideIcons() { if (typeof lucide !== 'undefined') lucide.createIcons() }
+function showToast(msg, type) { console.log(`[${type}] ${msg}`) }
 
+function stripTaskMetadata(text) {
+  if (!text) return ''
+  const markers = ['\n\nCollaboration:', '\n\nAssigned agent:', '\n\nOther agents:', '\n\nRole:']
+  const positions = markers.map(m => text.indexOf(m)).filter(p => p !== -1)
+  return positions.length ? text.slice(0, Math.min(...positions)).trim() : text.trim()
+}
 
 function describeStep(step) {
-  if (!step || !step.action) return "Waiting…"
-
-  const actionName = step.action.toLowerCase()
-  const { x, y } = extractCoordinatesFromArray(step.coordinate)
-
-  const isClickAction = actionName === "left_click"
-    || actionName === "click"
-    || actionName === "double_click"
-    || actionName === "right_click"
-
-  if (isClickAction) {
-    const hasCoordinates = x != null
-    if (hasCoordinates) {
-      const friendlyName = actionName.replace("_", " ")
-      return `${friendlyName} at ${x}, ${y}`
-    }
-    return "Clicking"
-  }
-
-  if (actionName === "scroll_down") return "Scrolling down"
-  if (actionName === "scroll_up") return "Scrolling up"
-  if (actionName === "scroll") return `Scrolling ${step.value || ""}`.trim()
-
-  if (actionName === "type") {
-    const valueText = step.value || ""
-    const isTruncated = valueText.length > 30
-    const displayValue = isTruncated ? `${valueText.substring(0, 30)}...` : valueText
-    return `Typing "${displayValue}"`
-  }
-
-  if (actionName === "press_key") return `Pressing ${step.value || "key"}`
-
-  if (actionName === "hotkey") {
-    const isArray = Array.isArray(step.value)
-    const hotkeyLabel = isArray ? step.value.join("+") : step.value || ""
-    return `Hotkey ${hotkeyLabel}`
-  }
-
-  if (actionName === "wait") return "Waiting..."
-  if (actionName === "none") return "Done"
-
-  return step.action
+  if (!step || !step.action) return 'Waiting…'
+  const a = step.action.toLowerCase()
+  const [x, y] = Array.isArray(step.coordinate) && step.coordinate.length === 2 ? step.coordinate : [null, null]
+  if (['left_click', 'click', 'double_click', 'right_click'].includes(a))
+    return x != null ? `${a.replace('_', ' ')} at ${x}, ${y}` : 'Clicking'
+  if (a === 'scroll') return `Scrolling ${step.value || ''}`.trim()
+  if (a === 'type') return `Typing "${(step.value || '').slice(0, 30)}${(step.value || '').length > 30 ? '...' : ''}"`
+  if (a === 'press_key') return `Pressing ${step.value || 'key'}`
+  if (a === 'hotkey') return `Hotkey ${Array.isArray(step.value) ? step.value.join('+') : step.value || ''}`
+  return { scroll_down: 'Scrolling down', scroll_up: 'Scrolling up', wait: 'Waiting...', none: 'Done' }[a] || step.action
 }
 
 
-function stripTaskMetadata(taskText) {
-  if (!taskText) return ""
-
-  const metadataMarkers = [
-    "\n\nCollaboration:",
-    "\n\nAssigned agent:",
-    "\n\nOther agents:",
-    "\n\nShared workspace:",
-    "\n\nRole:"
-  ]
-
-  const markerPositions = metadataMarkers
-    .map(marker => taskText.indexOf(marker))
-    .filter(position => position !== -1)
-
-  if (!markerPositions.length) return taskText.trim()
-
-  const firstMarkerPosition = Math.min(...markerPositions)
-  return taskText.slice(0, firstMarkerPosition).trim()
-}
-
-
-function extractDocIdFromUrl(url) {
-  if (!url) return null
-  const match = url.match(/\/document\/d\/([a-zA-Z0-9_-]+)/)
-  return match ? match[1] : null
-}
-
-
-function truncateText(text, maxLength) {
-  if (!text) return ''
-  const isTooLong = text.length > maxLength
-  if (isTooLong) {
-    return `${text.slice(0, maxLength - 1)}…`
-  }
-  return text
-}
-
-
-function refreshLucideIcons() {
-  if (typeof lucide !== 'undefined') {
-    lucide.createIcons()
-  }
-}
-
-
-function showToast(message, type) {
-  console.log(`[${type}] ${message}`)
-}
-
-
+// ── Connection Overlay ─────────────────────────────────────────────────────────
 function showConnectionOverlay() {
-  const isBlockedByShutdown = serverUnavailable || shuttingDown
-  if (isBlockedByShutdown) return
-
-  const overlay = getElementById("connectionOverlay")
-  overlay.classList.remove('error')
-  overlay.classList.add('active')
-
+  if (serverUnavailable || shuttingDown) return
+  el('connectionOverlay').classList.remove('error')
+  el('connectionOverlay').classList.add('active')
   refreshLucideIcons()
 }
-
 function hideConnectionOverlay() {
-  const isBlockedByShutdown = serverUnavailable || shuttingDown
-  if (isBlockedByShutdown) return
-
-  const overlay = getElementById("connectionOverlay")
-  overlay.classList.remove('active')
-  overlay.classList.remove('error')
+  if (serverUnavailable || shuttingDown) return
+  el('connectionOverlay').classList.remove('active', 'error')
 }
 
+const GH_BTN = `<a href="https://github.com/danielreiman/Harmony" target="_blank" class="goodbyeBtn"><svg viewBox="0 0 16 16" style="width:18px;height:18px;fill:currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>View on GitHub</a>`
+
+function _setOverlayMessage(title, subtitle) {
+  const ov = el('connectionOverlay')
+  ov.querySelector('.connectionOverlayTitle').textContent = title
+  ov.querySelector('.connectionOverlaySubtitle').innerHTML = subtitle
+  ov.querySelector('.connectionOverlayBody').style.display = 'none'
+  const a = ov.querySelector('.connectionActions'), t = ov.querySelector('.connectionOverlayTopActions')
+  if (a) a.style.display = 'none'
+  if (t) t.style.display = 'none'
+  ov.classList.remove('error')
+  ov.classList.add('active', 'goodbye')
+  refreshLucideIcons()
+}
 
 function showGoodbye() {
   shuttingDown = true
-
-  const overlay = getElementById("connectionOverlay")
-  const titleEl = overlay.querySelector('.connectionOverlayTitle')
-  const subtitleEl = overlay.querySelector('.connectionOverlaySubtitle')
-  const bodyEl = overlay.querySelector('.connectionOverlayBody')
-  const actionsEl = overlay.querySelector('.connectionActions')
-  const topActionsEl = overlay.querySelector('.connectionOverlayTopActions')
-
-  titleEl.textContent = 'See you next time!'
-  subtitleEl.innerHTML = 'Harmony server has been shut down<div class="goodbyeActions"><button class="goodbyeBtn" onclick="location.reload()"><i data-lucide="refresh-cw"></i>Reconnect</button><a href="https://github.com/danielreiman/Harmony" target="_blank" class="goodbyeBtn"><svg viewBox="0 0 16 16" style="width:18px;height:18px;fill:currentColor;"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>View on GitHub</a></div><div style="margin-top:32px;color:rgba(255,255,255,0.6);font-size:13px;">To restart: <code style="background:rgba(255,255,255,0.1);padding:4px 8px;border-radius:4px;">python server/server.py</code></div>'
-  bodyEl.style.display = 'none'
-
-  if (actionsEl) actionsEl.style.display = 'none'
-  if (topActionsEl) topActionsEl.style.display = 'none'
-
-  overlay.classList.remove('error')
-  overlay.classList.add('active', 'goodbye')
-
-  refreshLucideIcons()
+  _setOverlayMessage('See you next time!',
+    `Harmony server has been shut down<div class="goodbyeActions"><button class="goodbyeBtn" onclick="location.reload()"><i data-lucide="refresh-cw"></i>Reconnect</button>${GH_BTN}</div><div style="margin-top:32px;color:rgba(255,255,255,0.6);font-size:13px;">To restart: <code style="background:rgba(255,255,255,0.1);padding:4px 8px;border-radius:4px;">python server/server.py</code></div>`)
 }
-
 
 function showServerUnavailable() {
   if (shuttingDown) return
-
   serverUnavailable = true
-
-  const overlay = getElementById("connectionOverlay")
-  const titleEl = overlay.querySelector('.connectionOverlayTitle')
-  const subtitleEl = overlay.querySelector('.connectionOverlaySubtitle')
-  const bodyEl = overlay.querySelector('.connectionOverlayBody')
-  const actionsEl = overlay.querySelector('.connectionActions')
-  const topActionsEl = overlay.querySelector('.connectionOverlayTopActions')
-
-  titleEl.textContent = 'Server unavailable'
-  subtitleEl.innerHTML = 'Cannot reach the Harmony server. Make sure it is running.<div class="goodbyeActions"><button class="goodbyeBtn" onclick="checkServerStatus()"><i data-lucide="refresh-cw"></i>Retry</button><a href="https://github.com/danielreiman/Harmony" target="_blank" class="goodbyeBtn"><svg viewBox="0 0 16 16" style="width:18px;height:18px;fill:currentColor;"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>View on GitHub</a></div><div style="margin-top:32px;color:rgba(255,255,255,0.6);font-size:13px;">To start: <code style="background:rgba(255,255,255,0.1);padding:4px 8px;border-radius:4px;">python server/server.py</code></div>'
-  bodyEl.style.display = 'none'
-
-  if (actionsEl) actionsEl.style.display = 'none'
-  if (topActionsEl) topActionsEl.style.display = 'none'
-
-  overlay.classList.remove('error')
-  overlay.classList.add('active', 'goodbye')
-
-  refreshLucideIcons()
+  _setOverlayMessage('Server unavailable',
+    `Cannot reach the Harmony server. Make sure it is running.<div class="goodbyeActions"><button class="goodbyeBtn" onclick="checkServerStatus()"><i data-lucide="refresh-cw"></i>Retry</button>${GH_BTN}</div><div style="margin-top:32px;color:rgba(255,255,255,0.6);font-size:13px;">To start: <code style="background:rgba(255,255,255,0.1);padding:4px 8px;border-radius:4px;">python server/server.py</code></div>`)
 }
 
 function hideServerUnavailable() {
   if (!serverUnavailable) return
-
   serverUnavailable = false
-
-  const overlay = getElementById("connectionOverlay")
-  const titleEl = overlay.querySelector('.connectionOverlayTitle')
-  const subtitleEl = overlay.querySelector('.connectionOverlaySubtitle')
-  const bodyEl = overlay.querySelector('.connectionOverlayBody')
-  const topActionsEl = overlay.querySelector('.connectionOverlayTopActions')
-
-  titleEl.textContent = 'Harmony'
-  subtitleEl.textContent = 'Distributed automation system for parallel task execution across multiple computers'
-  bodyEl.style.display = ''
-
-  if (topActionsEl) topActionsEl.style.display = ''
-
-  overlay.classList.remove('goodbye')
-  overlay.classList.remove('active')
+  const ov = el('connectionOverlay')
+  ov.querySelector('.connectionOverlayTitle').textContent = 'Harmony'
+  ov.querySelector('.connectionOverlaySubtitle').textContent = 'Distributed automation system for parallel task execution across multiple computers'
+  ov.querySelector('.connectionOverlayBody').style.display = ''
+  const t = ov.querySelector('.connectionOverlayTopActions')
+  if (t) t.style.display = ''
+  ov.classList.remove('goodbye', 'active')
 }
-
 
 async function checkServerStatus() {
   if (shuttingDown) return
-
   try {
-    const response = await apiFetch('/api/status')
-    const statusData = await response.json()
-    const serverIsOnline = statusData.ok
-    if (serverIsOnline) {
-      hideServerUnavailable()
-    } else {
-      showServerUnavailable()
-    }
-  } catch (networkError) {
-    showServerUnavailable()
-  }
+    const data = await (await apiFetch('/api/status')).json()
+    data.ok ? hideServerUnavailable() : showServerUnavailable()
+  } catch { showServerUnavailable() }
 }
 
 
+// ── Screen ─────────────────────────────────────────────────────────────────────
 async function refreshScreen() {
-  const browserFrame = document.querySelector('.browserFrame')
-  const browserTop = document.querySelector('.browserTop')
-  const statusCapEl = getElementById("statusCap")
-
-  function showWaitingState() {
-    getElementById("screen").style.display = 'none'
-    getElementById("waitingState").style.display = 'flex'
-    getElementById("waitingAgentId").textContent = currentAgent || 'No agent selected'
-    getElementById("viewport").classList.add('empty')
-    browserFrame.classList.add('waiting')
-    browserTop.style.display = 'none'
-    statusCapEl.style.display = 'none'
+  const frame = document.querySelector('.browserFrame')
+  const top = document.querySelector('.browserTop')
+  function waiting() {
+    el('screen').style.display = 'none'
+    el('waitingState').style.display = 'flex'
+    el('waitingAgentId').textContent = currentAgent || 'No agent selected'
+    el('viewport').classList.add('empty')
+    frame.classList.add('waiting')
+    top.style.display = 'none'
+    el('statusCap').style.display = 'none'
   }
-
-  if (!currentAgent) {
-    showWaitingState()
-    return
-  }
-
+  if (!currentAgent) return waiting()
   try {
-    const response = await apiFetch(`/screen/${currentAgent}?t=${Date.now()}`, { cache: "no-store" })
-    if (!response.ok) throw new Error(`Screen fetch failed: ${response.status}`)
-
-    const imageBlob = await response.blob()
-    const newImageUrl = URL.createObjectURL(imageBlob)
-
-    if (lastScreenshotUrl) {
-      URL.revokeObjectURL(lastScreenshotUrl)
-    }
-    lastScreenshotUrl = newImageUrl
-
-    getElementById("screen").src = newImageUrl
-    getElementById("screen").style.display = 'block'
-    getElementById("waitingState").style.display = 'none'
-    getElementById("viewport").classList.remove('empty')
-    browserFrame.classList.remove('waiting')
-    browserTop.style.display = 'flex'
-    statusCapEl.style.display = 'block'
-  } catch (fetchError) {
-    console.warn('Screen refresh failed:', fetchError.message)
-    showWaitingState()
-  }
+    const res = await apiFetch(`/screen/${currentAgent}?t=${Date.now()}`, { cache: 'no-store' })
+    if (!res.ok) throw new Error()
+    const url = URL.createObjectURL(await res.blob())
+    if (lastScreenshotUrl) URL.revokeObjectURL(lastScreenshotUrl)
+    lastScreenshotUrl = url
+    el('screen').src = url
+    el('screen').style.display = 'block'
+    el('waitingState').style.display = 'none'
+    el('viewport').classList.remove('empty')
+    frame.classList.remove('waiting')
+    top.style.display = 'flex'
+    el('statusCap').style.display = 'block'
+  } catch { waiting() }
 }
 
 
-function renderAgentState(agentData) {
-  const taskPanel = getElementById("taskStatusPanel")
-  const displayTask = stripTaskMetadata(agentData.task)
-
-  getElementById("taskStatusText").textContent = displayTask || "No active task"
-  getElementById("statusCap").textContent = agentData.status_text || agentData.status || "Idle"
-  getElementById("actionTop").textContent = describeStep(agentData.step)
-
-  const agentIsWorking = agentData.status === 'working'
-  const shouldShowTaskPanel = displayTask && agentIsWorking
-  if (taskPanel) {
-    taskPanel.style.display = shouldShowTaskPanel ? 'flex' : 'none'
-  }
-
-  const hasReasoning = agentData.step && agentData.step.reasoning
-  if (hasReasoning) {
-    getElementById("singleReasoningText").textContent = agentData.step.reasoning
-  } else {
-    getElementById("singleReasoningText").textContent = agentData.status_text || "Waiting for agent activity..."
-  }
+// ── Agent State ────────────────────────────────────────────────────────────────
+function renderAgentState(data) {
+  const task = stripTaskMetadata(data.task)
+  el('taskStatusText').textContent = task || 'No active task'
+  el('statusCap').textContent = data.status_text || data.status || 'Idle'
+  el('actionTop').textContent = describeStep(data.step)
+  const panel = el('taskStatusPanel')
+  if (panel) panel.style.display = task && data.status === 'working' ? 'flex' : 'none'
+  el('singleReasoningText').textContent = (data.step && data.step.reasoning) || data.status_text || 'Waiting for agent activity...'
 }
-
 
 async function updateState() {
-  const taskPanel = getElementById("taskStatusPanel")
-
   if (!currentAgent) {
-    getElementById("taskStatusText").textContent = "No active task"
-    getElementById("statusCap").textContent = "Idle"
-    getElementById("actionTop").textContent = "Select an agent..."
-    getElementById("singleReasoningText").textContent = "Waiting for agent activity..."
-    if (taskPanel) taskPanel.style.display = 'none'
+    el('taskStatusText').textContent = 'No active task'
+    el('statusCap').textContent = 'Idle'
+    el('actionTop').textContent = 'Select an agent...'
+    el('singleReasoningText').textContent = 'Waiting for agent activity...'
+    const p = el('taskStatusPanel')
+    if (p) p.style.display = 'none'
     return
   }
-
   try {
-    const response = await apiFetch(`/agent/${currentAgent}`, { cache: "no-store" })
-    if (!response.ok) throw new Error(`Agent state fetch failed: ${response.status}`)
-
-    const agentData = await response.json()
-    renderAgentState(agentData)
-  } catch (fetchError) {
-    console.warn('State update failed:', fetchError.message)
-  }
+    const res = await apiFetch(`/agent/${currentAgent}`, { cache: 'no-store' })
+    if (res.ok) renderAgentState(await res.json())
+  } catch {}
 }
 
 
+// ── Agents List ────────────────────────────────────────────────────────────────
 async function fetchAgents() {
   try {
-    const response = await apiFetch("/agents", { cache: "no-store" })
-    if (!response.ok) throw new Error(`Agents fetch failed: ${response.status}`)
-
-    const agents = await response.json()
-    agentsList = agents
-
-    const noAgentsConnected = agents.length === 0
-    if (noAgentsConnected) {
-      getElementById("selectedAgent").textContent = "No agents"
-      showConnectionOverlay()
-      return
-    }
-
+    const res = await apiFetch('/agents', { cache: 'no-store' })
+    if (!res.ok) throw new Error()
+    agentsList = await res.json()
+    if (!agentsList.length) { el('selectedAgent').textContent = 'No agents'; showConnectionOverlay(); return }
     hideConnectionOverlay()
     hideSingleEmptyState()
-
-    const noAgentSelected = !currentAgent
-    if (noAgentSelected) {
-      currentAgent = agents[0].id
-    }
-
+    if (!currentAgent) currentAgent = agentsList[0].id
     updateAgentDropdown()
-  } catch (fetchError) {
-    console.error('Failed to fetch agents:', fetchError.message)
-    showToast('Connection lost - server may be down', 'error')
-  }
+  } catch { showToast('Connection lost - server may be down', 'error') }
 }
-
 
 function updateAgentDropdown() {
-  if (agentsList.length === 0) return
+  if (!agentsList.length) return
+  el('selectedAgent').textContent = currentAgent || 'No agent'
+  el('agentDropdownMenu').innerHTML =
+    `<div class="agentDropdownHeader">Select Agent</div><div class="agentDropdownDivider"></div>` +
+    agentsList.map(a =>
+      `<div class="agentOption${a.id === currentAgent ? ' active' : ''}" onclick="currentAgent='${a.id}';updateAgentDropdown();updateState();refreshScreen();updatePromptPlaceholder();closeAgentDropdown()">
+        <div class="agentOptionTitle">${escapeHtml(a.id)}</div>
+        <svg class="agentOptionCheck" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      </div>`
+    ).join('')
+}
 
-  getElementById("selectedAgent").textContent = currentAgent || "No agent"
+function toggleAgentDropdown() { el('agentSelector').classList.toggle('open'); el('agentDropdownMenu').classList.toggle('open') }
+function closeAgentDropdown() { el('agentSelector').classList.remove('open'); el('agentDropdownMenu').classList.remove('open') }
 
-  const menu = getElementById("agentDropdownMenu")
-  menu.innerHTML = ""
+el('agentSelector').onclick = e => { e.stopPropagation(); toggleAgentDropdown() }
+document.addEventListener('click', e => { if (!e.target.closest('.agentDropdown')) closeAgentDropdown() })
 
-  const header = document.createElement("div")
-  header.className = "agentDropdownHeader"
-  header.textContent = "Select Agent"
-  menu.appendChild(header)
 
-  const divider = document.createElement("div")
-  divider.className = "agentDropdownDivider"
-  menu.appendChild(divider)
-
-  agentsList.forEach(function(agent) {
-    const option = document.createElement("div")
-    option.className = "agentOption"
-
-    const agentIsSelected = agent.id === currentAgent
-    if (agentIsSelected) {
-      option.classList.add("active")
-    }
-
-    const titleEl = document.createElement("div")
-    titleEl.className = "agentOptionTitle"
-    titleEl.textContent = agent.id
-
-    const checkIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg")
-    checkIcon.classList.add("agentOptionCheck")
-    checkIcon.setAttribute("viewBox", "0 0 24 24")
-    checkIcon.setAttribute("fill", "none")
-    checkIcon.setAttribute("stroke", "currentColor")
-    checkIcon.setAttribute("stroke-width", "3")
-    checkIcon.setAttribute("stroke-linecap", "round")
-    checkIcon.setAttribute("stroke-linejoin", "round")
-
-    const checkPath = document.createElementNS("http://www.w3.org/2000/svg", "polyline")
-    checkPath.setAttribute("points", "20 6 9 17 4 12")
-    checkIcon.appendChild(checkPath)
-
-    option.appendChild(titleEl)
-    option.appendChild(checkIcon)
-
-    option.onclick = function() {
-      currentAgent = agent.id
-      updateAgentDropdown()
-      updateState()
-      refreshScreen()
-      updatePromptPlaceholder()
-      closeAgentDropdown()
-    }
-
-    menu.appendChild(option)
+// ── View Switching ─────────────────────────────────────────────────────────────
+function switchView(view) {
+  document.querySelectorAll('.viewToggleBtn').forEach(b => {
+    b.classList.toggle('active',
+      (view === 'single' && b.textContent.includes('Single')) ||
+      (view === 'supervisor' && b.textContent.includes('Supervisor')))
   })
-}
-
-
-function toggleAgentDropdown() {
-  const selector = getElementById("agentSelector")
-  const menu = getElementById("agentDropdownMenu")
-  selector.classList.toggle("open")
-  menu.classList.toggle("open")
-}
-
-function closeAgentDropdown() {
-  getElementById("agentSelector").classList.remove("open")
-  getElementById("agentDropdownMenu").classList.remove("open")
-}
-
-getElementById("agentSelector").onclick = function(event) {
-  event.stopPropagation()
-  toggleAgentDropdown()
-}
-
-document.addEventListener("click", function(event) {
-  const clickedInsideDropdown = event.target.closest(".agentDropdown")
-  if (!clickedInsideDropdown) {
-    closeAgentDropdown()
-  }
-})
-
-
-function switchView(viewName) {
-  document.querySelectorAll('.viewToggleBtn').forEach(function(btn) {
-    btn.classList.remove('active')
-
-    const isSingleViewBtn     = viewName === 'single'     && btn.textContent.includes('Single')
-    const isSupervisorViewBtn = viewName === 'supervisor' && btn.textContent.includes('Supervisor')
-    const isTasksViewBtn      = viewName === 'tasks'      && btn.textContent.includes('Tasks')
-    if (isSingleViewBtn || isSupervisorViewBtn || isTasksViewBtn) {
-      btn.classList.add('active')
-    }
-  })
-
-  const promptMeta = getElementById("promptMeta")
-
-  if (viewName === 'single') {
-    getElementById("singleView").classList.add('active')
-    getElementById("supervisorView").classList.remove('active')
-    getElementById("tasksView").classList.remove('active')
-    getElementById("agentDropdown").style.display = 'flex'
-    if (promptMeta) promptMeta.style.display = 'none'
-    currentView = 'single'
-    updatePromptPlaceholder()
-  } else if (viewName === 'supervisor') {
-    getElementById("singleView").classList.remove('active')
-    getElementById("supervisorView").classList.add('active')
-    getElementById("tasksView").classList.remove('active')
-    getElementById("agentDropdown").style.display = 'none'
-    if (promptMeta) promptMeta.style.display = 'flex'
-    currentView = 'supervisor'
-    updateSupervisorGrid()
-    updatePromptPlaceholder()
-  } else if (viewName === 'tasks') {
-    getElementById("singleView").classList.remove('active')
-    getElementById("supervisorView").classList.remove('active')
-    getElementById("tasksView").classList.add('active')
-    getElementById("agentDropdown").style.display = 'none'
-    if (promptMeta) promptMeta.style.display = 'none'
-    currentView = 'tasks'
-    fetchTasksView()
-    updatePromptPlaceholder()
-  }
-
+  el('singleView').classList.toggle('active', view === 'single')
+  el('supervisorView').classList.toggle('active', view === 'supervisor')
+  el('agentDropdown').style.display = view === 'single' ? 'flex' : 'none'
+  const meta = el('promptMeta')
+  if (meta) meta.style.display = view === 'supervisor' ? 'flex' : 'none'
+  currentView = view
+  if (view === 'supervisor') updateSupervisorGrid()
+  updatePromptPlaceholder()
   refreshLucideIcons()
 }
-
 
 function updatePromptPlaceholder() {
-  const input = getElementById("promptInput")
-
-  if (currentView === 'single') {
-    const hasAgentSelected = !!currentAgent
-    input.placeholder = hasAgentSelected
-      ? `Send task to ${currentAgent}...`
-      : 'Select an agent first...'
-  } else if (currentView === 'tasks') {
-    input.placeholder = 'Enter task instructions...'
-  } else {
-    input.placeholder = 'Enter task instructions for all agents...'
-  }
+  el('promptInput').placeholder = currentView === 'single'
+    ? (currentAgent ? `Send task to ${currentAgent}...` : 'Select an agent first...')
+    : 'Enter task instructions for all agents...'
 }
 
 
-function buildTaskWithContext(options) {
-  const task = options.task
-  const agentId = options.agentId
-  const agents = options.agents
-  const workspaceUrl = options.workspaceUrl
-  const isResearch = options.isResearch
-  const isCollab = options.isCollab
-  const docId = options.docId
-
-  const orderedAgents = agents.length ? agents : (agentId ? [agentId] : [])
-  const leadAgent = orderedAgents[0]
-  const wrapUpAgent = orderedAgents[orderedAgents.length - 1]
-  const otherAgentIds = orderedAgents.filter(function(id) { return id !== agentId })
-
-  let roleNote = "Own a subject: pick a unique subtopic, write one findings paragraph with source credit."
-
-  const isSoloAgent = orderedAgents.length === 1
-  const agentIsOnlyOne = agentId === leadAgent && agentId === wrapUpAgent
-
-  if (isSoloAgent || agentIsOnlyOne) {
-    roleNote = "Solo: write Instructions/Approach, all findings paragraphs (one per subject with citations), Conclusion, Bibliography, then clean grammar/formatting."
-  } else if (agentId === leadAgent) {
-    roleNote = "Lead: write the Instructions/Approach paragraph. If only two agents, also take one findings paragraph."
-  } else if (agentId === wrapUpAgent) {
-    roleNote = "Wrap-up: write the Conclusion paragraph, compile the Bibliography, then do a cleanup pass (grammar, spacing, headings/bold) without changing facts. If only two agents, also take one findings paragraph."
-  }
-
-  const docRules = [
-    "- Google Doc is shared; agents use read_doc/write_doc API only (no UI opening).",
-    "- Structure: Title (only heading), Notes (bullets, short, with source names), Introduction (short), Findings (one short paragraph per subject with inline source), Conclusion (short), Bibliography (Author or Org. (Year, Month Day). Title. Site. URL).",
-    "- Keep paragraphs brief with blank lines; bullets start with '-'.",
-    "- Start by reading the doc; do not overwrite existing text."
-  ]
-
-  const otherAgentsDisplay = otherAgentIds.length ? otherAgentIds.join(", ") : "none"
-  const workspaceDisplay = workspaceUrl || "not provided"
-  const collabDisplay = isCollab ? "yes" : "no"
-  const agentDisplay = agentId || "queue"
-
-  const lines = [
-    task,
-    "",
-    "Collaboration: " + collabDisplay,
-    "Assigned agent: " + agentDisplay,
-    "Other agents: " + otherAgentsDisplay,
-    "Shared workspace: " + workspaceDisplay,
-    "Role: " + roleNote
-  ]
-
-  if (isCollab && isResearch) {
-    lines.push(
-      "",
-      "Collab research instructions:",
-      "- Use read_doc/write_doc only; do not open the doc UI.",
-      "- Notes: bullets with source names; Findings: one short paragraph per subject; keep spacing clean.",
-      "- Team split: first agent writes Instructions/Approach; middle agents each write one findings paragraph; last agent writes Conclusion + Bibliography + cleanup."
-    )
-  }
-
-  if (isResearch) {
-    const hasWorkspaceUrl = !!workspaceUrl
-    const docSetupLine = hasWorkspaceUrl
-      ? "- Shared Google Doc provided. Use API actions only; do not open the URL."
-      : "- No shared doc provided. Ask once if a doc link is missing."
-
-    lines.push("", "Document setup:", docSetupLine)
-    lines.push("", "Document rules:", ...docRules)
-  }
-
-  return lines.join("\n")
+// ── Send Task ──────────────────────────────────────────────────────────────────
+function buildTaskWithContext({ task, agentId, agents, isCollab }) {
+  if (!isCollab) return task
+  const ordered = agents.length ? agents : (agentId ? [agentId] : [])
+  const others = ordered.filter(id => id !== agentId)
+  const isOnly = ordered.length === 1 || (agentId === ordered[0] && agentId === ordered[ordered.length - 1])
+  const role = isOnly ? 'Complete the entire task.'
+    : agentId === ordered[0] ? 'Lead agent: start the task and handle the first part.'
+    : agentId === ordered[ordered.length - 1] ? 'Wrap-up agent: complete the final part of the task.'
+    : 'Work on your assigned part of the task.'
+  return [task, '', 'Collaboration: yes', `Assigned agent: ${agentId || 'queue'}`, `Other agents: ${others.join(', ') || 'none'}`, `Role: ${role}`].join('\n')
 }
-
 
 async function sendTask() {
-  const input = getElementById("promptInput")
-  if (!input) {
-    console.error('Prompt input element not found')
-    return
-  }
-
+  const input = el('promptInput')
   const taskText = input.value.trim()
-  if (!taskText) {
-    showToast('Please enter a task', 'error')
-    return
-  }
-
+  if (!taskText) return showToast('Please enter a task', 'error')
+  const post = body => apiFetch('/api/send-task', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
   try {
-    const workspaceUrl = localStorage.getItem("harmonyWorkspaceUrl") || ""
-    const docId = extractDocIdFromUrl(workspaceUrl) || localStorage.getItem("harmonyDocId") || null
-
-    let targetAgentIds = []
-    let allParticipatingAgentIds = []
-    let isCollab = false
-    let primaryAgentId = null
-
-    if (currentView === 'single') {
-      if (!currentAgent) {
-        showToast('Please select an agent first', 'error')
-        return
-      }
-      primaryAgentId = currentAgent
-      targetAgentIds = [currentAgent]
-      allParticipatingAgentIds = [currentAgent]
-    } else {
-      const agentsResponse = await apiFetch("/agents", { cache: "no-store" })
-      if (!agentsResponse.ok) throw new Error(`Agents fetch failed: ${agentsResponse.status}`)
-
-      const connectedAgents = await agentsResponse.json()
-      allParticipatingAgentIds = connectedAgents.map(function(agent) { return agent.id })
-
-      if (allParticipatingAgentIds.length === 0) {
-        showToast('No agents connected', 'error')
-        return
-      }
-
-      targetAgentIds = allParticipatingAgentIds
-      isCollab = true
-    }
-
-    const payloads = targetAgentIds.map(function(targetAgentId) {
-      const contextualTaskText = buildTaskWithContext({
-        task: taskText,
-        agentId: targetAgentId,
-        agents: allParticipatingAgentIds.length ? allParticipatingAgentIds : (primaryAgentId ? [primaryAgentId] : []),
-        workspaceUrl: workspaceUrl,
-        isResearch: researchModeEnabled,
-        isCollab: isCollab,
-        docId: docId
-      })
-
-      return {
-        task: contextualTaskText,
-        agent_id: targetAgentId,
-        research_mode: researchModeEnabled,
-        doc_id: docId
-      }
-    })
-
-    const fetchOptions = {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
-    }
-
-    const sendRequests = payloads.map(function(payload) {
-      return apiFetch('/api/send-task', Object.assign({}, fetchOptions, { body: JSON.stringify(payload) }))
-    })
-
-    const responses = await Promise.all(sendRequests)
-
-    const originalInputValue = input.value
-    input.value = ''
-
-    const failures = []
-    let successCount = 0
-
-    for (const response of responses) {
-      if (!response.ok) {
-        let errorMessage = `Server error: ${response.status}`
-        try {
-          const errorData = await response.json()
-          errorMessage = errorData.error || errorMessage
-        } catch (parseError) {
-          // Response was not JSON, keep the status code message
-        }
-        failures.push(errorMessage)
-        continue
-      }
-
-      let result = null
-      try {
-        const responseText = await response.text()
-        result = responseText ? JSON.parse(responseText) : null
-      } catch (parseError) {
-        console.error('Task send response parse error:', parseError)
-        failures.push('Unexpected server response')
-        continue
-      }
-
-      const taskWasSent = result && result.success
-      if (taskWasSent) {
-        successCount += 1
-      } else {
-        const errorMessage = (result && result.error) || 'Failed to send task'
-        failures.push(errorMessage)
-      }
-    }
-
-    if (failures.length) {
-      showToast(failures[0], 'error')
-      input.value = originalInputValue
+    if (researchModeEnabled) {
+      const data = await (await post({ task: taskText, research_mode: true })).json()
+      if (data.success) { input.value = ''; showToast('Research task queued', 'success'); openTasksPanel() }
+      else showToast(data.error || 'Failed to queue task', 'error')
       return
     }
-
-    const sentToMultipleAgents = successCount > 1
-    if (sentToMultipleAgents) {
-      showToast(`Task sent to ${successCount} agents`, 'success')
+    let targets = [], allAgents = [], isCollab = false
+    if (currentView === 'single') {
+      if (!currentAgent) return showToast('Please select an agent first', 'error')
+      targets = allAgents = [currentAgent]
     } else {
-      showToast('Task sent successfully', 'success')
+      const res = await apiFetch('/agents', { cache: 'no-store' })
+      if (!res.ok) throw new Error()
+      allAgents = (await res.json()).map(a => a.id)
+      if (!allAgents.length) return showToast('No agents connected', 'error')
+      targets = allAgents
+      isCollab = true
     }
-  } catch (networkError) {
-    console.error('Task send error:', networkError)
-    showToast('Network error - check server connection', 'error')
-  }
+    const originalValue = input.value
+    input.value = ''
+    const responses = await Promise.all(targets.map(agentId =>
+      post({ task: buildTaskWithContext({ task: taskText, agentId, agents: allAgents, isCollab }), agent_id: agentId, research_mode: false })
+    ))
+    const failures = []
+    let successes = 0
+    for (const res of responses) {
+      let result = null
+      try { result = await res.json() } catch {}
+      if (result && result.success) { successes++ }
+      else { failures.push((result && result.error) || `Server error: ${res.status}`) }
+    }
+    if (failures.length) { showToast(failures[0], 'error'); input.value = originalValue; return }
+    showToast(successes > 1 ? `Task sent to ${successes} agents` : 'Task sent successfully', 'success')
+  } catch { showToast('Network error - check server connection', 'error') }
 }
 
+el('promptSend').onclick = sendTask
+el('promptInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); sendTask() } })
 
-function closeResultsModal() {
-  const modal = getElementById("resultsModal")
-  modal.classList.remove('open')
-}
 
-function closeReasoningModal() {
-  getElementById("reasoningModal").classList.remove('open')
-}
-
-function closeCustomAlert() {
-  const modal = getElementById("customAlert")
-  modal.classList.remove('open')
-}
-
+// ── Modals ─────────────────────────────────────────────────────────────────────
+function closeCustomAlert() { el('customAlert').classList.remove('open') }
 function showCustomAlert(title, message) {
-  const modal = getElementById("customAlert")
-  const titleElement = getElementById("customAlertTitle")
-  const bodyElement = getElementById("customAlertBody")
-
-  titleElement.textContent = title
-  bodyElement.textContent = message
-
+  el('customAlertTitle').textContent = title
+  el('customAlertBody').textContent = message
   refreshLucideIcons()
-  modal.classList.add('open')
+  el('customAlert').classList.add('open')
+}
+function showTaskModal(agentId, task) { showCustomAlert(`${agentId} - Task`, task) }
+
+
+// ── Research Modal ─────────────────────────────────────────────────────────────
+function openResearchModal(taskId) {
+  currentResearchTaskId = taskId
+  el('researchModal').classList.add('open')
+  fetchAndRenderResearch()
+  researchPollInterval = setInterval(fetchAndRenderResearch, 3000)
 }
 
-function showTaskModal(agentId, taskText) {
-  showCustomAlert(`${agentId} - Task`, taskText)
+function closeResearchModal() {
+  currentResearchTaskId = null
+  el('researchModal').classList.remove('open')
+  clearInterval(researchPollInterval)
+  researchPollInterval = null
 }
 
+async function fetchAndRenderResearch() {
+  if (!currentResearchTaskId) return
+  try {
+    const res = await apiFetch('/api/research/' + currentResearchTaskId)
+    if (!res.ok) return
+    const data = await res.json()
+    renderResearchPanel(data)
+    const allDone = data.subtasks && data.subtasks.length > 0 && data.subtasks.every(s => s.status === 'complete')
+    if (allDone && researchPollInterval) { clearInterval(researchPollInterval); researchPollInterval = null }
+  } catch {}
+}
 
-function populateWorkspaceEmail() {
-  const email = serviceAccountInfo.email || "service account email not found"
-  const emailEl = getElementById("workspaceEmail")
-  if (emailEl) {
-    emailEl.textContent = email
+function renderResearchPanel(data) {
+  const parent = data.parent || {}
+  const titleEl = el('researchModalTitle')
+  if (titleEl) titleEl.textContent = stripTaskMetadata(parent.task) || parent.task || 'Research Report'
+  const body = el('researchModalBody')
+  if (!body) return
+  let html = (data.subtasks || []).map(renderResearchSection).join('')
+  if (parent.result_json) {
+    try {
+      const pd = JSON.parse(parent.result_json)
+      if (pd.summary) html += `<div class="researchSection researchSummary"><div class="researchSectionLabel">Summary</div><div class="researchSectionBody">${escapeHtml(pd.summary)}</div></div>`
+    } catch {}
   }
+  body.innerHTML = html || '<div class="researchEmpty">Research in progress — results will appear here as agents complete their sections.</div>'
+}
 
-  const infoEl = getElementById("workspaceKeyInfo")
-  if (infoEl) {
-    const hasServiceAccount = serviceAccountInfo.hasKey && serviceAccountInfo.email
-    if (hasServiceAccount) {
-      infoEl.className = ""
-      infoEl.innerHTML = ""
-    } else {
-      infoEl.className = "workspaceInfoWarn"
-      infoEl.innerHTML = `Place <code>service-account.json</code> in <code>server/</code>, restart.`
-    }
+function renderResearchSection(s) {
+  const label = escapeHtml(s.section_label || s.task || 'Section')
+  const agent = escapeHtml(s.assigned_agent || '')
+  if (s.status !== 'complete' || !s.result_json) {
+    const dot = s.status === 'assigned'
+      ? `<span class="researchStatusDot researching"></span>Researching — ${agent}`
+      : `<span class="researchStatusDot queued"></span>Queued`
+    return `<div class="researchSection researchSectionPending"><div class="researchSectionLabel">${label}</div><div class="researchSectionStatus">${dot}</div></div>`
   }
+  let bodyText = '', sources = []
+  try { const r = JSON.parse(s.result_json); bodyText = r.body || ''; sources = r.sources || [] } catch {}
+  const srcs = sources.length
+    ? `<div class="researchSources"><div class="researchSourcesLabel">Sources</div><ul class="researchSourcesList">${sources.map(src => {
+        const name = escapeHtml(src.name || src.url || '')
+        return src.url ? `<li><a href="${escapeHtml(src.url)}" target="_blank" rel="noreferrer">${name}</a></li>` : `<li>${name}</li>`
+      }).join('')}</ul></div>`
+    : ''
+  return `<div class="researchSection"><div class="researchSectionLabel">${label}</div><div class="researchSectionAgent"><span class="researchStatusDot done"></span>${agent}</div><div class="researchSectionBody">${escapeHtml(bodyText)}</div>${srcs}</div>`
 }
 
-function openWorkspacePanel() {
-  populateWorkspaceEmail()
 
-  const panel = getElementById("workspacePanel")
-  if (!panel) return
+// ── Global Events ──────────────────────────────────────────────────────────────
+document.addEventListener('click', e => {
+  if (e.target.id === 'customAlert') closeCustomAlert()
+  const tp = el('tasksPanel')
+  if (tp && tp.classList.contains('open') && !e.target.closest('#tasksPanel') && !e.target.closest('#tasksBtn')) closeTasksPanel()
+  const rm = el('researchModal')
+  if (rm && rm.classList.contains('open') && !e.target.closest('#researchModal') && !e.target.closest('.viewResultsBtn')) closeResearchModal()
+})
 
-  const input = getElementById("workspaceUrlInput")
-  if (input) {
-    input.value = localStorage.getItem("harmonyWorkspaceUrl") || ""
-    input.focus()
-  }
-
-  panel.classList.add("open")
-}
-
-function closeWorkspacePanel() {
-  const panel = getElementById("workspacePanel")
-  if (!panel) return
-  panel.classList.remove("open")
-}
-
-function toggleWorkspacePanel() {
-  const panel = getElementById("workspacePanel")
-  if (!panel) return
-
-  const panelIsOpen = panel.classList.contains("open")
-  if (panelIsOpen) {
-    closeWorkspacePanel()
-  } else {
-    openWorkspacePanel()
-  }
-}
-
-function copyWorkspaceEmail() {
-  const email = serviceAccountInfo.email
-  if (!email) {
-    showToast("No service account email found", "error")
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    if (el('researchModal').classList.contains('open')) closeResearchModal()
+    if (el('tasksPanel').classList.contains('open')) closeTasksPanel()
+    if (el('customAlert').classList.contains('open')) closeCustomAlert()
     return
   }
-  navigator.clipboard.writeText(email).then(function() {
-    showToast("Email copied", "success")
-  }).catch(function() {
-    showToast("Copy failed", "error")
-  })
-}
-
-function saveWorkspace() {
-  const input = getElementById("workspaceUrlInput")
-  if (!input) return
-
-  const url = (input.value || "").trim()
-  const docId = extractDocIdFromUrl(url)
-
-  const urlIsInvalid = url && !docId
-  if (urlIsInvalid) {
-    showToast("Paste a valid Google Doc URL", "error")
-    return
-  }
-
-  if (url) {
-    localStorage.setItem("harmonyWorkspaceUrl", url)
-    if (docId) {
-      localStorage.setItem("harmonyDocId", docId)
-    }
-  } else {
-    localStorage.removeItem("harmonyWorkspaceUrl")
-    localStorage.removeItem("harmonyDocId")
-  }
-
-  const toastMessage = url ? "Workspace saved" : "Workspace cleared"
-  showToast(toastMessage, "success")
-  closeWorkspacePanel()
-}
-
-
-document.addEventListener('click', function(event) {
-  if (event.target.id === 'resultsModal') {
-    closeResultsModal()
-  }
-  if (event.target.id === 'reasoningModal') {
-    closeReasoningModal()
-  }
-  if (event.target.id === 'customAlert') {
-    closeCustomAlert()
-  }
-
-  const panel = getElementById("workspacePanel")
-  const workspaceBtn = getElementById("workspaceBtn")
-  const panelIsOpen = panel && panel.classList.contains("open")
-  const clickedOutsidePanel = !event.target.closest('#workspacePanel')
-  const clickedOutsideButton = !event.target.closest('#workspaceBtn')
-  if (panelIsOpen && clickedOutsidePanel && clickedOutsideButton) {
-    closeWorkspacePanel()
-  }
-})
-
-document.addEventListener('keydown', function(event) {
-  if (event.key !== 'Escape') return
-
-  const resultsModal = getElementById("resultsModal")
-  const reasoningModal = getElementById("reasoningModal")
-  const customAlert = getElementById("customAlert")
-  const workspacePanel = getElementById("workspacePanel")
-
-  if (resultsModal.classList.contains('open')) closeResultsModal()
-  if (reasoningModal.classList.contains('open')) closeReasoningModal()
-  if (customAlert.classList.contains('open')) closeCustomAlert()
-  if (workspacePanel.classList.contains('open')) closeWorkspacePanel()
-})
-
-document.addEventListener("keydown", function(event) {
-  const isViewToggleShortcut = event.key === 's' && (event.metaKey || event.ctrlKey)
-  if (isViewToggleShortcut) {
-    event.preventDefault()
-    const nextView = currentView === 'single' ? 'supervisor' : 'single'
-    switchView(nextView)
+  if (e.key === 's' && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault()
+    switchView(currentView === 'single' ? 'supervisor' : 'single')
   }
 })
 
 
-getElementById("promptSend").onclick = sendTask
-
-getElementById("promptInput").addEventListener('keydown', function(event) {
-  if (event.key === 'Enter') {
-    event.preventDefault()
-    sendTask()
-  }
-})
-
-
+// ── Agent Controls ─────────────────────────────────────────────────────────────
 async function stopAgent(agentId) {
   try {
-    const response = await apiFetch(`/api/agent/${agentId}/stop`, { method: 'POST' })
-    const result = await response.json()
-    const toastType = result.success ? 'success' : 'error'
-    const toastMessage = result.message || result.error
-    showToast(toastMessage, toastType)
-  } catch (networkError) {
-    showToast('Failed to connect to server', 'error')
-  }
+    const r = await (await apiFetch(`/api/agent/${agentId}/stop`, { method: 'POST' })).json()
+    showToast(r.message || r.error, r.success ? 'success' : 'error')
+  } catch { showToast('Failed to connect to server', 'error') }
 }
 
 async function disconnectAgent(agentId) {
-  const userConfirmed = confirm(`Remove ${agentId}? This will disconnect and delete its data.`)
-  if (!userConfirmed) return
-
+  if (!confirm(`Remove ${agentId}? This will disconnect and delete its data.`)) return
+  function finalize(msg, type) {
+    showToast(msg, type)
+    if (currentAgent === agentId) { currentAgent = null; updatePromptPlaceholder(); updateState(); refreshScreen() }
+    fetchAgents()
+    if (currentView === 'supervisor') updateSupervisorGrid()
+  }
   try {
-    const encodedAgentId = encodeURIComponent(agentId)
-    const response = await apiFetch(`/api/agent/${encodedAgentId}/disconnect`, { method: 'POST' })
-
+    const res = await apiFetch(`/api/agent/${encodeURIComponent(agentId)}/disconnect`, { method: 'POST' })
     let result = null
-    try {
-      result = await response.json()
-    } catch (parseError) {
-      // Response was not JSON, result stays null
-    }
-
-    function finalizeDisconnect(message, toastType) {
-      showToast(message, toastType)
-
-      const disconnectedAgentWasSelected = currentAgent === agentId
-      if (disconnectedAgentWasSelected) {
-        currentAgent = null
-        updatePromptPlaceholder()
-        updateState()
-        refreshScreen()
-      }
-
-      fetchAgents()
-
-      if (currentView === 'supervisor') {
-        updateSupervisorGrid()
-      }
-    }
-
-    const requestFailed = !response.ok
-    if (requestFailed) {
-      const agentAlreadyGone = response.status === 404
-      if (agentAlreadyGone) {
-        finalizeDisconnect(`Agent ${agentId} already disconnected`, 'success')
-        return
-      }
-      const errorMessage = (result && result.error) || 'Server rejected disconnect request'
-      showToast(errorMessage, 'error')
+    try { result = await res.json() } catch {}
+    if (!res.ok) {
+      if (res.status === 404) { finalize(`Agent ${agentId} already disconnected`, 'success'); return }
+      showToast((result && result.error) || 'Server rejected disconnect request', 'error')
       return
     }
-
-    const successMessage = (result && result.message) || `Agent ${agentId} disconnected`
-    finalizeDisconnect(successMessage, 'success')
-  } catch (networkError) {
-    console.error('Disconnect failed:', networkError)
-    showConnectionOverlay()
-  }
+    finalize((result && result.message) || `Agent ${agentId} disconnected`, 'success')
+  } catch { showConnectionOverlay() }
 }
 
 async function stopServer() {
-  const userConfirmed = confirm('Shutdown the Harmony server? All agents will be disconnected.')
-  if (!userConfirmed) return
-
-  try {
-    await apiFetch('/api/server/stop', { method: 'POST' })
-  } catch (networkError) {
-    // Expected — server is shutting down and connection will drop
-  }
+  if (!confirm('Shutdown the Harmony server? All agents will be disconnected.')) return
+  try { await apiFetch('/api/server/stop', { method: 'POST' }) } catch {}
   showGoodbye()
 }
 
 
+// ── Empty States ───────────────────────────────────────────────────────────────
 function showSingleEmptyState() {
-  const isInSingleView = currentView === 'single'
-  if (!isInSingleView) return
-
-  getElementById("screen").style.display = 'none'
-  getElementById("viewport").classList.add('empty')
-  getElementById("singleEmptyState").style.display = 'flex'
-
+  if (currentView !== 'single') return
+  el('screen').style.display = 'none'
+  el('viewport').classList.add('empty')
+  el('singleEmptyState').style.display = 'flex'
   refreshLucideIcons()
 }
-
-function hideSingleEmptyState() {
-  getElementById("singleEmptyState").style.display = 'none'
-  getElementById("viewport").classList.remove('empty')
-}
+function hideSingleEmptyState() { el('singleEmptyState').style.display = 'none'; el('viewport').classList.remove('empty') }
 
 
+// ── Toggles ────────────────────────────────────────────────────────────────────
 function toggleResearchMode() {
-  if (!researchModeEnabled) {
-    const workspaceUrl = localStorage.getItem("harmonyWorkspaceUrl") || ""
-    const docId = extractDocIdFromUrl(workspaceUrl) || localStorage.getItem("harmonyDocId")
-    const hasServiceAccountKey = !!serviceAccountInfo.hasKey
-    const hasWorkspaceUrl = !!workspaceUrl
-    const hasDocId = !!docId
-
-    const researchPrerequisitesMissing = !hasWorkspaceUrl || !hasDocId || !hasServiceAccountKey
-    if (researchPrerequisitesMissing) {
-      alert("To use research, add a Google Docs URL in Workspace and place service-account.json in server/ (shared as Editor).")
-      return
-    }
-  }
-
   researchModeEnabled = !researchModeEnabled
-
-  const btn = getElementById("researchToggle")
-  if (researchModeEnabled) {
-    btn.classList.add("active")
-    btn.title = "Research mode ON - Click to disable"
-  } else {
-    btn.classList.remove("active")
-    btn.title = "Toggle research mode"
-  }
-
+  el('researchToggle').classList.toggle('active', researchModeEnabled)
+  el('researchToggle').title = researchModeEnabled ? 'Research mode ON - Click to disable' : 'Toggle research mode'
   refreshLucideIcons()
 }
-
 
 function toggleFullscreen() {
-  const isCurrentlyFullscreen = !!document.fullscreenElement
-
-  if (!isCurrentlyFullscreen) {
-    document.documentElement.requestFullscreen().catch(function() {
-      showToast("Fullscreen not available", "error")
-    })
-    const iconEl = document.querySelector(".fullscreenBtn i")
-    if (iconEl) iconEl.setAttribute("data-lucide", "minimize-2")
+  const icon = document.querySelector('.fullscreenBtn i')
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(() => showToast('Fullscreen not available', 'error'))
+    if (icon) icon.setAttribute('data-lucide', 'minimize-2')
   } else {
     document.exitFullscreen()
-    const iconEl = document.querySelector(".fullscreenBtn i")
-    if (iconEl) iconEl.setAttribute("data-lucide", "maximize-2")
+    if (icon) icon.setAttribute('data-lucide', 'maximize-2')
   }
-
   refreshLucideIcons()
 }
-
-document.addEventListener("fullscreenchange", function() {
-  const iconEl = document.querySelector(".fullscreenBtn i")
-  if (iconEl) {
-    const newIconName = document.fullscreenElement ? "minimize-2" : "maximize-2"
-    iconEl.setAttribute("data-lucide", newIconName)
-    refreshLucideIcons()
-  }
+document.addEventListener('fullscreenchange', () => {
+  const icon = document.querySelector('.fullscreenBtn i')
+  if (icon) { icon.setAttribute('data-lucide', document.fullscreenElement ? 'minimize-2' : 'maximize-2'); refreshLucideIcons() }
 })
 
 
+// ── Supervisor View ────────────────────────────────────────────────────────────
 function updateSupervisorStats(agents) {
-  const totalCount = agents.length
-  const activeCount = agents.filter(function(agent) { return agent.status === 'working' }).length
-  const idleCount = totalCount - activeCount
-
-  getElementById("totalAgents").textContent = totalCount
-  getElementById("activeAgents").textContent = activeCount
-  getElementById("idleAgents").textContent = idleCount
+  const active = agents.filter(a => a.status === 'working').length
+  el('totalAgents').textContent = agents.length
+  el('activeAgents').textContent = active
+  el('idleAgents').textContent = agents.length - active
 }
-
 
 async function updateSupervisorGrid() {
   if (currentView !== 'supervisor') return
-
   try {
-    const agentsResponse = await apiFetch("/agents", { cache: "no-store" })
-    if (!agentsResponse.ok) throw new Error(`Agents fetch failed: ${agentsResponse.status}`)
-
-    const agents = await agentsResponse.json()
-    const grid = getElementById("supervisorGrid")
-    const emptyState = getElementById("emptyState")
-
-    const noAgentsConnected = agents.length === 0
-    if (noAgentsConnected) {
-      grid.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: var(--muted); font-size: 16px; font-style: italic;">No agents connected</div>`
-      emptyState.style.display = 'none'
+    const res = await apiFetch('/agents', { cache: 'no-store' })
+    if (!res.ok) throw new Error()
+    const agents = await res.json()
+    const grid = el('supervisorGrid')
+    if (!agents.length) {
+      grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:60px 20px;color:var(--muted);font-size:16px;font-style:italic;">No agents connected</div>`
+      el('emptyState').style.display = 'none'
       showConnectionOverlay()
       return
     }
-
     grid.style.display = 'flex'
-    emptyState.style.display = 'none'
+    el('emptyState').style.display = 'none'
     hideConnectionOverlay()
-
-    const agentStatePromises = agents.map(async function(agent) {
+    const details = await Promise.all(agents.map(async a => {
       try {
-        const stateResponse = await apiFetch(`/agent/${agent.id}`, { cache: "no-store" })
-        if (stateResponse.ok) {
-          return await stateResponse.json()
-        }
-        return { id: agent.id, status: 'idle', task: null, status_text: 'Idle' }
-      } catch (fetchError) {
-        return { id: agent.id, status: 'error', status_text: 'Connection Error' }
-      }
-    })
-
-    const agentDetails = await Promise.all(agentStatePromises)
-
-    updateSupervisorStats(agentDetails)
-
-    const currentAgentIds = agentDetails.map(function(agent) { return agent.id }).sort().join(',')
-    const lastAgentIds = lastAgentData.map(function(agent) { return agent.id }).sort().join(',')
-    const agentListChanged = currentAgentIds !== lastAgentIds
-
-    if (agentListChanged) {
-      grid.innerHTML = ""
-      agentTileElements = {}
-      agentDetails.forEach(function(agent) { createAgentTile(agent, grid) })
-    } else {
-      agentDetails.forEach(function(agent) { updateAgentTile(agent) })
-    }
-
-    lastAgentData = agentDetails
-  } catch (networkError) {
-    console.warn('Supervisor grid update failed:', networkError.message)
-    showToast('Connection lost - server may be down', 'error')
-  }
+        const r = await apiFetch(`/agent/${a.id}`, { cache: 'no-store' })
+        return r.ok ? await r.json() : { id: a.id, status: 'idle', task: null, status_text: 'Idle' }
+      } catch { return { id: a.id, status: 'error', status_text: 'Connection Error' } }
+    }))
+    updateSupervisorStats(details)
+    const newIds = details.map(a => a.id).sort().join(',')
+    const oldIds = lastAgentData.map(a => a.id).sort().join(',')
+    if (newIds !== oldIds) { grid.innerHTML = ''; agentTileElements = {}; details.forEach(a => createAgentTile(a, grid)) }
+    else details.forEach(a => updateAgentTile(a))
+    lastAgentData = details
+  } catch { showToast('Connection lost - server may be down', 'error') }
 }
 
-
 function createAgentTile(agent, grid) {
-  const tile = document.createElement("div")
-  tile.className = "agentTile"
+  const tile = document.createElement('div')
+  tile.className = 'agentTile'
   tile.id = `tile-${agent.id}`
-
-  tile.onclick = function() {
-    currentAgent = agent.id
-    switchView('single')
-    updateState()
-    refreshScreen()
-  }
-
+  tile.onclick = () => { currentAgent = agent.id; switchView('single'); updateState(); refreshScreen() }
   agentTileElements[agent.id] = tile
   updateAgentTileContent(agent, tile)
   grid.appendChild(tile)
-
   refreshLucideIcons()
 }
-
-function updateAgentTile(agent) {
-  const tile = agentTileElements[agent.id]
-  if (tile) {
-    updateAgentTileContent(agent, tile)
-  }
-}
+function updateAgentTile(agent) { const t = agentTileElements[agent.id]; if (t) updateAgentTileContent(agent, t) }
 
 async function updateAgentTileContent(agent, tile) {
   let screenshotUrl = null
   try {
-    const screenResponse = await apiFetch(`/screen/${agent.id}?t=${Date.now()}`, { cache: "no-store" })
-    if (screenResponse.ok) {
-      const blob = await screenResponse.blob()
-      screenshotUrl = URL.createObjectURL(blob)
-    }
-  } catch (fetchError) {
-    // Screenshot failed, tile will show placeholder
-  }
-
-  let stepDescription = 'No task'
-  const hasStepAction = agent.step && agent.step.action
-  const agentIsWorking = agent.status === 'working'
-
-  if (hasStepAction) {
-    stepDescription = describeStep({
-      action: agent.step.action,
-      coordinate: agent.step.coordinate,
-      value: agent.step.value
-    })
-  } else if (agentIsWorking) {
-    stepDescription = 'Working...'
-  }
-
-  const truncatedStepDescription = truncateText(stepDescription, 44)
-  const displayTask = stripTaskMetadata(agent.task)
-  const taskDisplay = displayTask || 'No active task'
-  const agentDisplay = agent.id || 'Unknown'
-
-  const escapedTask = taskDisplay.replace(/`/g, '\\`').replace(/\$/g, '\\$')
-  const escapedAgentId = agent.id
-
-  const screenshotHtml = screenshotUrl
-    ? `<img src="${screenshotUrl}" class="agentTileScreenImg" alt="Agent screen">`
-    : `<div class="agentTileScreenPlaceholder"></div>`
-
+    const res = await apiFetch(`/screen/${agent.id}?t=${Date.now()}`, { cache: 'no-store' })
+    if (res.ok) screenshotUrl = URL.createObjectURL(await res.blob())
+  } catch {}
+  const task = stripTaskMetadata(agent.task) || 'No active task'
+  const step = agent.step && agent.step.action
+    ? describeStep({ action: agent.step.action, coordinate: agent.step.coordinate, value: agent.step.value })
+    : agent.status === 'working' ? 'Working...' : 'No task'
+  const stepDesc = truncateText(step, 44)
+  const eid = escapeHtml(agent.id)
+  const escapedTask = task.replace(/`/g, '\\`').replace(/\$/g, '\\$')
+  const hasTask = agent.task && agent.status === 'working'
+  const escapedReason = (agent.step && agent.step.reasoning || '').replace(/`/g, '\\`').replace(/\$/g, '\\$')
   tile.innerHTML = `
     <div class="agentTileContent">
       <div class="agentTileHeader">
-        <div class="agentTileId">${agentDisplay}</div>
-        <div class="agentTileTask" onclick="event.stopPropagation(); showTaskModal('${escapedAgentId}', \`${escapedTask}\`)" title="Click to view task">${taskDisplay}</div>
+        <div class="agentTileId">${eid}</div>
+        <div class="agentTileTask" onclick="event.stopPropagation();showTaskModal('${eid}',\`${escapedTask}\`)" title="Click to view task">${escapeHtml(task)}</div>
       </div>
-
       <div class="agentMiniWindow">
         <div class="agentMiniTop">
-          <div class="agentMiniWin red"></div>
-          <div class="agentMiniWin yellow"></div>
-          <div class="agentMiniWin green"></div>
-          <div class="agentMiniAddress" title="${truncatedStepDescription}">${truncatedStepDescription}</div>
+          <div class="agentMiniWin red"></div><div class="agentMiniWin yellow"></div><div class="agentMiniWin green"></div>
+          <div class="agentMiniAddress" title="${escapeHtml(stepDesc)}">${escapeHtml(stepDesc)}</div>
         </div>
-        <div class="agentMiniViewport" style="position: relative;">
-          ${screenshotHtml}
+        <div class="agentMiniViewport" style="position:relative">
+          ${screenshotUrl ? `<img src="${screenshotUrl}" class="agentTileScreenImg" alt="Agent screen">` : `<div class="agentTileScreenPlaceholder"></div>`}
         </div>
       </div>
     </div>
-    ${buildTileControlsHtml(agent)}
-  `
-
+    <div class="tileControlsRow">
+      ${hasTask && agent.step && agent.step.reasoning ? `<button class="tileControlBtn" onclick="event.stopPropagation();showCustomAlert('${eid} Thoughts',\`${escapedReason}\`)">Show Thought</button>` : ''}
+      ${hasTask ? `<button class="tileControlBtn iconOnly" onclick="event.stopPropagation();stopAgent('${eid}')" title="Pause"><i data-lucide="pause"></i></button>` : ''}
+      <button class="tileControlBtn danger" onclick="event.stopPropagation();disconnectAgent('${eid}')" title="Disconnect"><i data-lucide="x"></i>Disconnect</button>
+    </div>`
   setTimeout(refreshLucideIcons, 100)
 }
 
 
-function buildTileControlsHtml(agent) {
-  const hasThought = agent.step && agent.step.reasoning
-  const hasActiveTask = agent.task && agent.status === 'working'
-
-  const escapedReasoning = (agent.step && agent.step.reasoning || '').replace(/`/g, '\\`').replace(/\$/g, '\\$')
-  const agentId = agent.id
-
-  let thoughtButtonHtml = ''
-  if (hasActiveTask && hasThought) {
-    thoughtButtonHtml = `
-      <button class="tileControlBtn" onclick="event.stopPropagation(); showCustomAlert('${agentId} Thoughts', \`${escapedReasoning}\`)">
-        Show Thought
-      </button>
-    `
-  }
-
-  let pauseButtonHtml = ''
-  if (hasActiveTask) {
-    pauseButtonHtml = `
-      <button class="tileControlBtn iconOnly" onclick="event.stopPropagation(); stopAgent('${agentId}')" title="Pause">
-        <i data-lucide="pause"></i>
-      </button>
-    `
-  }
-
-  return `
-    <div class="tileControlsRow">
-      ${thoughtButtonHtml}
-      ${pauseButtonHtml}
-      <button class="tileControlBtn danger" onclick="event.stopPropagation(); disconnectAgent('${agentId}')" title="Disconnect">
-        <i data-lucide="x"></i>
-        Disconnect
-      </button>
-    </div>
-  `
+// ── Tasks Panel ────────────────────────────────────────────────────────────────
+function openTasksPanel() {
+  el('tasksPanel').classList.add('open')
+  el('tasksBtn').classList.add('active')
+  fetchAndRenderTasksPanel()
+  tasksPanelPollInterval = setInterval(fetchAndRenderTasksPanel, 5000)
 }
-
-
-function selectAgent(agentId) {
-  currentAgent = agentId
-  getElementById("agentValue").textContent = agentId
-
-  document.querySelectorAll('.viewToggleBtn').forEach(function(btn) {
-    btn.classList.remove('active')
-    const isSingleBtn = btn.textContent.includes('Single')
-    if (isSingleBtn) {
-      btn.classList.add('active')
-    }
-  })
-
-  switchView('single')
-  updateState()
-  refreshScreen()
+function closeTasksPanel() {
+  el('tasksPanel').classList.remove('open')
+  el('tasksBtn').classList.remove('active')
+  clearInterval(tasksPanelPollInterval)
+  tasksPanelPollInterval = null
 }
+function toggleTasksPanel() { el('tasksPanel').classList.contains('open') ? closeTasksPanel() : openTasksPanel() }
 
-function refreshAgent(agentId) {
-  const isInSupervisorView = currentView === 'supervisor'
-  if (isInSupervisorView) {
-    updateSupervisorGrid()
-  }
-}
-
-
-function formatRelativeTime(unixSeconds) {
-  const diffSeconds = Math.floor(Date.now() / 1000) - unixSeconds
-  if (diffSeconds < 60)  return 'just now'
-  if (diffSeconds < 3600) return `${Math.floor(diffSeconds / 60)} min ago`
-  if (diffSeconds < 86400) return `${Math.floor(diffSeconds / 3600)} hr ago`
-  if (diffSeconds < 172800) return 'yesterday'
-  return `${Math.floor(diffSeconds / 86400)} days ago`
-}
-
-
-async function fetchTasksView() {
+async function deleteTask(taskId) {
+  const item = el('taskItem-' + taskId)
+  if (item) item.style.opacity = '0.4'
   try {
-    const [tasksResponse, logsResponse] = await Promise.all([
-      apiFetch('/api/tasks', { cache: 'no-store' }),
-      apiFetch('/api/task-logs', { cache: 'no-store' })
-    ])
-
-    if (tasksResponse.ok) {
-      const tasks = await tasksResponse.json()
-      renderTasksList(tasks)
-    }
-
-    if (logsResponse.ok) {
-      const logs = await logsResponse.json()
-      renderTaskLogsList(logs)
-    }
-  } catch (fetchError) {
-    console.warn('Tasks view fetch failed:', fetchError.message)
-  }
+    const res = await apiFetch('/api/tasks/' + taskId, { method: 'DELETE' })
+    if (res.ok) { if (item) item.remove() }
+    else if (item) item.style.opacity = '1'
+  } catch { if (item) item.style.opacity = '1' }
 }
 
+async function fetchAndRenderTasksPanel() {
+  try {
+    const res = await apiFetch('/api/tasks', { cache: 'no-store' })
+    if (res.ok) renderTasksList(await res.json())
+  } catch {}
+}
 
 function renderTasksList(tasks) {
-  const container = getElementById('tasksList')
-  if (!tasks || tasks.length === 0) {
-    container.innerHTML = '<div class="tasksEmptyState">No tasks yet</div>'
-    return
-  }
-
-  container.innerHTML = tasks.map(function(task) {
-    const statusClass = task.status || 'queued'
-    const agentText   = task.assigned_agent ? `Agent: ${task.assigned_agent}` : ''
-    const timeText    = task.created_at ? formatRelativeTime(task.created_at) : ''
-    const taskLabel   = stripTaskMetadata(task.task) || task.task || ''
-
-    return `
-      <div class="taskItem">
-        <div class="taskItemText">${escapeHtml(taskLabel)}</div>
-        <div class="taskItemMeta">
-          <span class="taskItemStatus ${statusClass}">${statusClass}</span>
-          ${agentText ? `<span>${escapeHtml(agentText)}</span>` : ''}
-          ${timeText  ? `<span>${timeText}</span>` : ''}
-        </div>
+  const container = el('tasksPanelBody')
+  if (!tasks || !tasks.length) { container.innerHTML = '<div class="tasksEmptyState">No tasks yet</div>'; return }
+  container.innerHTML = tasks.map(task => {
+    const status = task.status || 'queued'
+    const icon = status === 'complete' ? '<span class="taskStatusIcon done">✓</span>'
+      : status === 'assigned' ? '<span class="taskStatusIcon active"></span>'
+      : '<span class="taskStatusIcon queued"></span>'
+    const label = escapeHtml(stripTaskMetadata(task.task) || task.task || '')
+    const isResearch = task.research_mode && !task.parent_task_id
+    return `<div class="taskItem" id="taskItem-${task.id}">
+      <div class="taskItemTop">${icon}<div class="taskItemText">${label}</div><button class="taskDeleteBtn" onclick="deleteTask(${task.id})" title="Delete task">✕</button></div>
+      <div class="taskItemMeta">
+        ${task.assigned_agent ? `<span class="taskItemAgent">${escapeHtml(task.assigned_agent)}</span>` : ''}
+        ${task.created_at ? `<span class="taskItemTime">${formatRelativeTime(task.created_at)}</span>` : ''}
+        ${isResearch ? `<button class="viewResultsBtn" onclick="openResearchModal(${task.id})">Results ↗</button>` : ''}
       </div>
-    `
+    </div>`
   }).join('')
 }
 
 
-function renderTaskLogsList(logs) {
-  const container = getElementById('taskLogsList')
-  if (!logs || logs.length === 0) {
-    container.innerHTML = '<div class="tasksEmptyState">No logs yet</div>'
-    return
-  }
+// ── Init & Poll ────────────────────────────────────────────────────────────────
+function showLoading() { el('statusCap').textContent = 'Connecting...' }
 
-  container.innerHTML = logs.map(function(log) {
-    const timeText = log.created_at ? formatRelativeTime(log.created_at) : ''
-    const detail   = log.detail || ''
-
-    return `
-      <div class="logItem">
-        <span class="logItemAction">${escapeHtml(log.action || '')}</span>
-        <span class="logItemDetail">${escapeHtml(detail)}</span>
-        ${timeText ? `<span class="logItemTime">${timeText}</span>` : ''}
-      </div>
-    `
-  }).join('')
+function ensureLucideReady(retries) {
+  retries = retries !== undefined ? retries : 30
+  if (typeof lucide !== 'undefined') { lucide.createIcons(); return }
+  if (retries > 0) setTimeout(() => ensureLucideReady(retries - 1), 100)
 }
-
-
-function escapeHtml(text) {
-  if (!text) return ''
-  return String(text)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
-
-
-function showLoading() {
-  getElementById("agentValue").textContent = "Loading..."
-  getElementById("statusCap").textContent = "Connecting..."
-}
-
-function hideLoading() {
-  // Loading state will be overwritten by actual data on next update
-}
-
-
-function ensureLucideReady(remainingRetries) {
-  const retries = remainingRetries !== undefined ? remainingRetries : 30
-
-  if (typeof lucide !== 'undefined') {
-    lucide.createIcons()
-    return
-  }
-
-  if (retries > 0) {
-    setTimeout(function() { ensureLucideReady(retries - 1) }, 100)
-  }
-}
-
-
-
-async function fetchServiceAccount() {
-  if (serviceAccountInfo.email) return
-  try {
-    const res = await apiFetch('/api/service-account')
-    const data = await res.json()
-    serviceAccountInfo = { hasKey: data.has_key || false, email: data.email || "" }
-    populateWorkspaceEmail()
-  } catch (_) {}
-}
-
 
 async function initialize() {
   if (isInitialized) return
-
   showLoading()
-
   try {
     await fetchAgents()
-    await fetchServiceAccount()
-
-    if (currentAgent) {
-      await Promise.all([updateState(), refreshScreen()])
-    }
-
+    if (currentAgent) await Promise.all([updateState(), refreshScreen()])
     updatePromptPlaceholder()
     ensureLucideReady()
     isInitialized = true
-    hideLoading()
-  } catch (initError) {
-    console.error('Initialization failed:', initError)
-  }
+  } catch {}
 }
 
-
-function scheduleUpdate(updateFunction, intervalMs) {
-  async function execute() {
-    try {
-      await updateFunction()
-      errorCount = 0
-      setTimeout(execute, intervalMs)
-    } catch (executionError) {
-      errorCount++
-      const backoffExponent = errorCount - 1
-      const backoffDelay = Math.min(intervalMs * Math.pow(2, backoffExponent), 10000)
-      console.warn(`Function failed, retrying in ${backoffDelay}ms:`, executionError.message)
-      setTimeout(execute, backoffDelay)
-    }
+function scheduleUpdate(fn, ms) {
+  async function run() {
+    try { await fn(); errorCount = 0; setTimeout(run, ms) }
+    catch { errorCount++; setTimeout(run, Math.min(ms * Math.pow(2, errorCount - 1), 10000)) }
   }
-  execute()
+  run()
 }
-
 
 initialize()
 window.addEventListener('load', ensureLucideReady)
 checkServerStatus()
-
 scheduleUpdate(fetchAgents, 2000)
 scheduleUpdate(updateState, 300)
-scheduleUpdate(function() {
-  if (currentAgent) {
-    return refreshScreen()
-  }
-}, 500)
-scheduleUpdate(function() {
-  if (currentView === 'supervisor') {
-    return updateSupervisorGrid()
-  }
-}, 1500)
+scheduleUpdate(function() { if (currentAgent) return refreshScreen() }, 500)
+scheduleUpdate(function() { if (currentView === 'supervisor') return updateSupervisorGrid() }, 1500)
 scheduleUpdate(checkServerStatus, 5000)
-scheduleUpdate(fetchServiceAccount, 3000)
-scheduleUpdate(function() {
-  if (currentView === 'tasks') {
-    return fetchTasksView()
-  }
-}, 5000)
