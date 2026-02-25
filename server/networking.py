@@ -32,7 +32,7 @@ def local_ip():
             return "127.0.0.1"
 
 
-def _read_exact(conn, byte_count):
+def read_exact(conn, byte_count):
     """Reads an exact number of bytes from the connection, returning None if it closes early."""
     received = b""
     while len(received) < byte_count:
@@ -60,7 +60,7 @@ def recv(conn):
     try:
         conn.settimeout(SOCKET_TIMEOUT_SECONDS)
 
-        size_bytes = _read_exact(conn, 8)
+        size_bytes = read_exact(conn, 8)
         if size_bytes is None:
             return None
 
@@ -68,7 +68,7 @@ def recv(conn):
         if message_size <= 0:
             return None
 
-        raw_data = _read_exact(conn, message_size)
+        raw_data = read_exact(conn, message_size)
         if raw_data is None:
             return None
 
@@ -89,7 +89,7 @@ def receive_file(destination_path, conn):
     try:
         conn.settimeout(SOCKET_TIMEOUT_SECONDS)
 
-        size_bytes = _read_exact(conn, 8)
+        size_bytes = read_exact(conn, 8)
         if size_bytes is None:
             print("[Helpers] Failed to receive file size header")
             return False

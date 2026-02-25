@@ -8,7 +8,7 @@ import database as db
 from prompts import TASK_SPLIT_PROMPT
 
 # Tracks which parent tasks have already had their summary written so we don't repeat it.
-_summary_written = set()
+summary_written = set()
 
 
 class Manager:
@@ -88,15 +88,15 @@ class Manager:
             idle_count = len(idle_agents)
 
             if idle_count >= 1:
-                self._maybe_split_research_tasks()
+                self.maybesplit_research_tasks()
 
-            self._check_research_complete()
+            self.check_research_complete()
 
             for agent in self.agents.values():
                 if agent.status != "idle":
                     continue
 
-                task_row = self._next_task_for(agent.id)
+                task_row = self.next_task_for(agent.id)
                 if task_row is None:
                     continue
 
@@ -111,7 +111,7 @@ class Manager:
                 mode_label = "research" if research_mode else "task"
                 print(f"[Manager] Assigned to {agent.id} ({mode_label}): {task_text[:50]}...")
 
-    def _next_task_for(self, agent_id):
+    def next_task_for(self, agent_id):
         """Selects the highest-priority queued task for an agent — prefers tasks targeted directly at it."""
         targeted_tasks = db.get_queued_tasks(agent_id=agent_id)
         if targeted_tasks:
@@ -123,7 +123,7 @@ class Manager:
 
         return None
 
-    def _maybe_split_research_tasks(self):
+    def maybesplit_research_tasks(self):
         """Checks for any unsplit parent research tasks and splits the first one found."""
         general_tasks = db.get_queued_tasks()
         for task_row in general_tasks:
@@ -132,10 +132,10 @@ class Manager:
             if task_row.get("parent_task_id"):
                 continue  # Already a subtask
 
-            self._split_research_task(task_row)
+            self.split_research_task(task_row)
             break  # Only split one parent task per tick
 
-    def _split_research_task(self, task_row):
+    def split_research_task(self, task_row):
         """Splits a parent research task into subtopics and queues each as a separate task."""
         try:
             result = self.ai.chat(
@@ -146,7 +146,7 @@ class Manager:
                 ]
             )
             raw = result["message"]["content"].strip()
-            subtopics = self._parse_json_array(raw)
+            subtopics = self.parse_json_array(raw)
 
             if not subtopics:
                 print("[Manager] Task split returned no subtopics — skipping split")
@@ -170,7 +170,7 @@ class Manager:
         except Exception as error:
             print(f"[Manager] Task splitting failed: {error}")
 
-    def _parse_json_array(self, text):
+    def parse_json_array(self, text):
         """Extracts a JSON array from the AI response text, returning None if parsing fails."""
         start = text.find("[")
         end = text.rfind("]")
@@ -184,13 +184,13 @@ class Manager:
         except json.JSONDecodeError:
             return None
 
-    def _check_research_complete(self):
+    def check_research_complete(self):
         """Checks if all subtasks for any split research task are done and writes the summary if so."""
         split_tasks = db.get_split_tasks()
         for parent in split_tasks:
             parent_id = parent["id"]
 
-            if parent_id in _summary_written:
+            if parent_id in summary_written:
                 continue
 
             subtasks = db.get_subtasks(parent_id)
@@ -201,10 +201,10 @@ class Manager:
             if not all_complete:
                 continue
 
-            _summary_written.add(parent_id)
-            self._finalize_research(parent)
+            summary_written.add(parent_id)
+            self.finalize_research(parent)
 
-    def _finalize_research(self, parent_task):
+    def finalize_research(self, parent_task):
         """Collects all subtask findings and writes a summary into the parent task's result."""
         try:
             subtasks = db.get_subtasks(parent_task["id"])

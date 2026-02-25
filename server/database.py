@@ -10,14 +10,14 @@ DATABASE_FILE_PATH = os.path.join(os.path.dirname(__file__), "harmony.db")
 SESSION_EXPIRES_AFTER_SECONDS = 7 * 24 * 3600
 
 # Each thread gets its own database connection
-_per_thread_storage = threading.local()
+per_thread_storage = threading.local()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _get_connection():
+def get_connection():
     # Open a new connection the first time this thread talks to the database
-    already_connected = hasattr(_per_thread_storage, "connection")
+    already_connected = hasattr(per_thread_storage, "connection")
     if not already_connected:
         connection = sqlite3.connect(DATABASE_FILE_PATH, timeout=30)
         connection.execute("PRAGMA journal_mode=WAL")
@@ -25,30 +25,30 @@ def _get_connection():
         connection.execute("PRAGMA synchronous=NORMAL")
         connection.execute("PRAGMA foreign_keys=ON")
         connection.row_factory = sqlite3.Row
-        _per_thread_storage.connection = connection
-    return _per_thread_storage.connection
+        per_thread_storage.connection = connection
+    return per_thread_storage.connection
 
 
-def _fetch_all_rows(sql, params=()):
+def fetch_all_rows(sql, params=()):
     # Run a SELECT and return every matching row as a plain dict
-    connection = _get_connection()
+    connection = get_connection()
     raw_rows = connection.execute(sql, params).fetchall()
     result = [dict(row) for row in raw_rows]
     return result
 
 
-def _fetch_one_row(sql, params=()):
+def fetch_one_row(sql, params=()):
     # Run a SELECT and return the first row as a dict, or None if nothing matched
-    connection = _get_connection()
+    connection = get_connection()
     raw_row = connection.execute(sql, params).fetchone()
     if raw_row is None:
         return None
     return dict(raw_row)
 
 
-def _execute_and_commit(sql, params=()):
+def execute_and_commit(sql, params=()):
     # Run an INSERT / UPDATE / DELETE and save the change
-    connection = _get_connection()
+    connection = get_connection()
     cursor = connection.execute(sql, params)
     connection.commit()
     return cursor
@@ -57,7 +57,7 @@ def _execute_and_commit(sql, params=()):
 # ── Schema ────────────────────────────────────────────────────────────────────
 
 def init_db():
-    connection = _get_connection()
+    connection = get_connection()
 
     connection.executescript("""
         CREATE TABLE IF NOT EXISTS users (
@@ -130,7 +130,7 @@ def register_agent(agent_id):
     current_time = time.time()
     sql = "INSERT OR REPLACE INTO agents (agent_id, status, connected_at, updated_at) VALUES (?, 'idle', ?, ?)"
     values = (agent_id, current_time, current_time)
-    _execute_and_commit(sql, values)
+    execute_and_commit(sql, values)
 
 
 def update_agent(agent_id, **fields_to_update):
@@ -150,28 +150,28 @@ def update_agent(agent_id, **fields_to_update):
     set_clause = ", ".join(set_parts)
     sql = f"UPDATE agents SET {set_clause} WHERE agent_id = ?"
     values = list(safe_fields.values()) + [agent_id]
-    _execute_and_commit(sql, values)
+    execute_and_commit(sql, values)
 
 
 def remove_agent(agent_id):
     sql = "DELETE FROM agents WHERE agent_id = ?"
-    _execute_and_commit(sql, (agent_id,))
+    execute_and_commit(sql, (agent_id,))
 
 
 def get_agent(agent_id):
     sql = "SELECT * FROM agents WHERE agent_id = ?"
-    return _fetch_one_row(sql, (agent_id,))
+    return fetch_one_row(sql, (agent_id,))
 
 
 def get_all_agents():
     sql = "SELECT * FROM agents ORDER BY agent_id"
-    return _fetch_all_rows(sql)
+    return fetch_all_rows(sql)
 
 
 def set_agent_command(agent_id, command_status):
     sql = "UPDATE agents SET status = ? WHERE agent_id = ?"
     values = (command_status, agent_id)
-    _execute_and_commit(sql, values)
+    execute_and_commit(sql, values)
 
 
 # ── Tasks ─────────────────────────────────────────────────────────────────────
@@ -179,7 +179,7 @@ def set_agent_command(agent_id, command_status):
 def add_task(task_text, research_mode=False, user_id=None, section_label=None, parent_task_id=None):
     sql = "INSERT INTO tasks (task, research_mode, status, created_at, user_id, section_label, parent_task_id) VALUES (?, ?, 'queued', ?, ?, ?, ?)"
     values = (task_text, int(research_mode), time.time(), user_id, section_label, parent_task_id)
-    cursor = _execute_and_commit(sql, values)
+    cursor = execute_and_commit(sql, values)
     new_task_id = cursor.lastrowid
     return new_task_id
 
@@ -187,7 +187,7 @@ def add_task(task_text, research_mode=False, user_id=None, section_label=None, p
 def add_task_for_agent(task_text, agent_id, research_mode=False, user_id=None, section_label=None, parent_task_id=None):
     sql = "INSERT INTO tasks (task, research_mode, status, assigned_agent, created_at, user_id, section_label, parent_task_id) VALUES (?, ?, 'queued', ?, ?, ?, ?, ?)"
     values = (task_text, int(research_mode), agent_id, time.time(), user_id, section_label, parent_task_id)
-    cursor = _execute_and_commit(sql, values)
+    cursor = execute_and_commit(sql, values)
     new_task_id = cursor.lastrowid
     return new_task_id
 
@@ -195,23 +195,23 @@ def add_task_for_agent(task_text, agent_id, research_mode=False, user_id=None, s
 def get_queued_tasks(for_agent_id=None):
     if for_agent_id:
         sql = "SELECT id, task, research_mode, assigned_agent, section_label, parent_task_id FROM tasks WHERE status = 'queued' AND assigned_agent = ? ORDER BY id"
-        return _fetch_all_rows(sql, (for_agent_id,))
+        return fetch_all_rows(sql, (for_agent_id,))
     else:
         sql = "SELECT id, task, research_mode, assigned_agent, section_label, parent_task_id FROM tasks WHERE status = 'queued' AND assigned_agent IS NULL ORDER BY id"
-        return _fetch_all_rows(sql)
+        return fetch_all_rows(sql)
 
 
 def get_tasks_for_user(user_id):
     sql = "SELECT id, task, status, assigned_agent, created_at, research_mode, parent_task_id FROM tasks WHERE user_id = ? ORDER BY id DESC"
-    return _fetch_all_rows(sql, (user_id,))
+    return fetch_all_rows(sql, (user_id,))
 
 
 def get_research_report(parent_task_id):
     parent_sql = "SELECT id, task, status, result_json FROM tasks WHERE id = ?"
-    parent_task = _fetch_one_row(parent_sql, (parent_task_id,))
+    parent_task = fetch_one_row(parent_sql, (parent_task_id,))
 
     subtasks_sql = "SELECT id, task, section_label, status, assigned_agent, result_json FROM tasks WHERE parent_task_id = ? ORDER BY id"
-    subtask_list = _fetch_all_rows(subtasks_sql, (parent_task_id,))
+    subtask_list = fetch_all_rows(subtasks_sql, (parent_task_id,))
 
     return {"parent": parent_task, "subtasks": subtask_list}
 
@@ -219,52 +219,52 @@ def get_research_report(parent_task_id):
 def assign_task(task_id, agent_id):
     sql = "UPDATE tasks SET status = 'assigned', assigned_agent = ? WHERE id = ?"
     values = (agent_id, task_id)
-    _execute_and_commit(sql, values)
+    execute_and_commit(sql, values)
 
 
 def complete_task(task_id):
     sql = "UPDATE tasks SET status = 'complete' WHERE id = ?"
-    _execute_and_commit(sql, (task_id,))
+    execute_and_commit(sql, (task_id,))
 
 
 def mark_task_split(task_id):
     sql = "UPDATE tasks SET status = 'split' WHERE id = ?"
-    _execute_and_commit(sql, (task_id,))
+    execute_and_commit(sql, (task_id,))
 
 
 def get_task_by_id(task_id):
     sql = "SELECT id, task, research_mode, status, assigned_agent, user_id, section_label, parent_task_id, result_json FROM tasks WHERE id = ?"
-    return _fetch_one_row(sql, (task_id,))
+    return fetch_one_row(sql, (task_id,))
 
 
 def set_task_result(task_id, result_data):
     result_as_json_string = json.dumps(result_data)
     sql = "UPDATE tasks SET result_json = ? WHERE id = ?"
     values = (result_as_json_string, task_id)
-    _execute_and_commit(sql, values)
+    execute_and_commit(sql, values)
 
 
 def get_subtasks(parent_task_id):
     sql = "SELECT id, task, research_mode, status, assigned_agent, section_label, result_json FROM tasks WHERE parent_task_id = ? ORDER BY id"
-    return _fetch_all_rows(sql, (parent_task_id,))
+    return fetch_all_rows(sql, (parent_task_id,))
 
 
 def get_split_tasks():
     sql = "SELECT id, task FROM tasks WHERE status = 'split' ORDER BY id"
-    return _fetch_all_rows(sql)
+    return fetch_all_rows(sql)
 
 
 def delete_task(task_id, user_id):
     # Make sure the task belongs to this user before deleting
-    task = _fetch_one_row("SELECT id, user_id FROM tasks WHERE id = ?", (task_id,))
+    task = fetch_one_row("SELECT id, user_id FROM tasks WHERE id = ?", (task_id,))
     task_not_found = task is None
     task_belongs_to_someone_else = task is not None and task["user_id"] != user_id
     if task_not_found or task_belongs_to_someone_else:
         return False
 
     # Delete subtasks first, then the parent task
-    _execute_and_commit("DELETE FROM tasks WHERE parent_task_id = ?", (task_id,))
-    _execute_and_commit("DELETE FROM tasks WHERE id = ?", (task_id,))
+    execute_and_commit("DELETE FROM tasks WHERE parent_task_id = ?", (task_id,))
+    execute_and_commit("DELETE FROM tasks WHERE id = ?", (task_id,))
     return True
 
 
@@ -276,7 +276,7 @@ def create_user(username, password):
     try:
         sql = "INSERT INTO users (username, password_hash, salt, created_at) VALUES (?, ?, ?, ?)"
         values = (username, hashed_password, random_salt, time.time())
-        _execute_and_commit(sql, values)
+        execute_and_commit(sql, values)
         return True
     except sqlite3.IntegrityError:
         # Username already taken
@@ -285,7 +285,7 @@ def create_user(username, password):
 
 def verify_user(username, password):
     sql = "SELECT id, password_hash, salt FROM users WHERE username = ?"
-    stored_user = _fetch_one_row(sql, (username,))
+    stored_user = fetch_one_row(sql, (username,))
     if stored_user is None:
         return None
 
@@ -301,7 +301,7 @@ def verify_user(username, password):
 
 def get_username(user_id):
     sql = "SELECT username FROM users WHERE id = ?"
-    user_row = _fetch_one_row(sql, (user_id,))
+    user_row = fetch_one_row(sql, (user_id,))
     if user_row is None:
         return None
     return user_row["username"]
@@ -314,13 +314,13 @@ def create_session(user_id):
     current_time = time.time()
     sql = "INSERT INTO sessions (token, user_id, created_at, last_active) VALUES (?, ?, ?, ?)"
     values = (session_token, user_id, current_time, current_time)
-    _execute_and_commit(sql, values)
+    execute_and_commit(sql, values)
     return session_token
 
 
 def validate_session(session_token):
     sql = "SELECT user_id, last_active FROM sessions WHERE token = ?"
-    session_row = _fetch_one_row(sql, (session_token,))
+    session_row = fetch_one_row(sql, (session_token,))
     if session_row is None:
         return None
 
@@ -329,16 +329,16 @@ def validate_session(session_token):
     session_has_expired = seconds_since_last_activity > SESSION_EXPIRES_AFTER_SECONDS
 
     if session_has_expired:
-        _execute_and_commit("DELETE FROM sessions WHERE token = ?", (session_token,))
+        execute_and_commit("DELETE FROM sessions WHERE token = ?", (session_token,))
         return None
 
-    _execute_and_commit("UPDATE sessions SET last_active = ? WHERE token = ?", (current_time, session_token))
+    execute_and_commit("UPDATE sessions SET last_active = ? WHERE token = ?", (current_time, session_token))
     return session_row["user_id"]
 
 
 def delete_session(session_token):
     sql = "DELETE FROM sessions WHERE token = ?"
-    _execute_and_commit(sql, (session_token,))
+    execute_and_commit(sql, (session_token,))
 
 
 # ── Messages ──────────────────────────────────────────────────────────────────
@@ -347,13 +347,13 @@ def send_agent_message(agent_id, message_content):
     current_time = time.time()
     sql = "INSERT INTO agent_messages (agent_id, content, consumed, created_at) VALUES (?, ?, 0, ?)"
     values = (agent_id, message_content, current_time)
-    _execute_and_commit(sql, values)
+    execute_and_commit(sql, values)
 
 
 def consume_agent_messages(agent_id):
     # Get all unread messages for this agent
     sql = "SELECT id, content FROM agent_messages WHERE agent_id = ? AND consumed = 0 ORDER BY id"
-    unread_messages = _fetch_all_rows(sql, (agent_id,))
+    unread_messages = fetch_all_rows(sql, (agent_id,))
 
     if not unread_messages:
         return []
@@ -362,7 +362,7 @@ def consume_agent_messages(agent_id):
     message_ids = [message["id"] for message in unread_messages]
     id_placeholders = ",".join("?" * len(message_ids))
     mark_read_sql = f"UPDATE agent_messages SET consumed = 1 WHERE id IN ({id_placeholders})"
-    _execute_and_commit(mark_read_sql, message_ids)
+    execute_and_commit(mark_read_sql, message_ids)
 
     # Return just the text content of each message
     message_texts = [message["content"] for message in unread_messages]

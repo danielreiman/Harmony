@@ -10,10 +10,21 @@ import pyautogui
 BROADCAST_PORT = 3030
 
 
-def discover(timeout=30):
+def discover(timeout=30, server_port=1222):
     """Listens for a UDP broadcast beacon from the server and returns its IP address."""
+    # Try localhost first in case client and server are on the same machine
+    try:
+        test = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        test.settimeout(1)
+        test.connect(("127.0.0.1", server_port))
+        test.close()
+        return "127.0.0.1"
+    except OSError:
+        pass
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
     sock.bind(("", BROADCAST_PORT))
     sock.settimeout(timeout)
     try:
