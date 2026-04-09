@@ -13,27 +13,29 @@
 </p>
 
 > [!IMPORTANT]
-> **Branch Hub**: This repository is organized by component into dedicated branches. The source code is not stored on the `main` branch. Please use the navigation guide below to find the specific component you need.
+> **Branch Hub**: This repository is organized by component into dedicated branches. The source code is maintained separately to ensure modularity.
 
-## 🌿 Project Navigation
+## 🌿 Project Components
 
 | Component | Branch | Description |
 | :--- | :--- | :--- |
-| **Server** | [**`server`**](https://github.com/danielreiman/Harmony/tree/server) | Core orchestration and agent management. |
-| **Admin Client** | [**`admin-client`**](https://github.com/danielreiman/Harmony/tree/admin-client) | Professional dashboard and controller UI. |
+| **Server** | [**`server`**](https://github.com/danielreiman/Harmony/tree/server) | Core orchestration and agent management system. |
+| **Admin Client** | [**`admin-client`**](https://github.com/danielreiman/Harmony/tree/admin-client) | Professional command dashboard and controller interface. |
 | **Agent Client** | [**`agent-client`**](https://github.com/danielreiman/Harmony/tree/agent-client) | Automation client for remote machines. |
-| **Legacy & Unified** | [**`legacy`**](https://github.com/danielreiman/Harmony/tree/legacy) | Complete backup containing both old and new structures. |
 
-## Quick Start
+## Getting Started
 
-To work on Harmony, choose your component and switch to its branch:
+To work on Harmony, select the component you wish to use and check out its branch:
 
 ```bash
-# Example: Working on the server
+# To work on the server
 git checkout server
 
-# Example: Accessing the unified legacy/dev backup
-git checkout legacy
+# To work on the admin client
+git checkout admin-client
+
+# To work on the agent client
+git checkout agent-client
 ```
 
 ## Overview
