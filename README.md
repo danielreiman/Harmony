@@ -15,7 +15,7 @@
 > [!IMPORTANT]
 > **Branch Hub**: This repository is organized by component into dedicated branches. The source code is maintained separately to ensure modularity.
 
-## 🌿 Project Components
+## Project Components
 
 | Component | Branch | Description |
 | :--- | :--- | :--- |
