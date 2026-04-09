@@ -1,0 +1,11 @@
+# Server
+ollama
+python-dotenv
+python-cfonts
+
+# Admin Client
+customtkinter
+Pillow
+
+# Agent Client
+pyautogui

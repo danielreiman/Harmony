@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://github.com/danielreiman/Harmony/raw/admin-client/icon.png" alt="Harmony" width="150">
+  <img src="admin-client/icon.png" alt="Harmony" width="150">
 </p>
 
 <h1 align="center">Harmony</h1>
@@ -12,19 +12,6 @@
   <strong>Distributed automation system for parallel task execution across multiple computers</strong>
 </p>
 
-> [!IMPORTANT]
-> **Architecture Update**: To maintain a professional and scalable codebase, this project has been divided into specialized branches. You will not find the source code on the `main` branch. Please switch to the appropriate branch based on your needs.
-
-## 🌿 Branch Index
-
-| Component | Branch | Description |
-| :--- | :--- | :--- |
-| **Server** | [**`server`**](https://github.com/danielreiman/Harmony/tree/server) | Central orchestration, API, and agent management. |
-| **Admin Client** | [**`admin-client`**](https://github.com/danielreiman/Harmony/tree/admin-client) | Professional dashboard for monitoring and task submission. |
-| **Agent Client** | [**`agent-client`**](https://github.com/danielreiman/Harmony/tree/agent-client) | Lightweight client for remote machine automation. |
-| **Legacy** | [`old-versions`](https://github.com/danielreiman/Harmony/tree/old-versions) | The previous monolithic version of the codebase. |
-
-
 ## Overview
 
 Harmony is a client-server automation system that distributes tasks across multiple computers. A central server coordinates AI-powered agents, each controlling a connected client machine. Tasks are automatically assigned and executed in parallel across all available clients.
@@ -36,58 +23,58 @@ Harmony is a client-server automation system that distributes tasks across multi
 - **Real-time monitoring** via a professional admin dashboard.
 - **Task isolation** using session-based authentication.
 
-## Quick Start (Per Branch)
+## Project Structure
+
+This repository is organized into the latest developmental components and a legacy backup for historical reference.
+
+- **`server/`**: The core FastAPI orchestration layer and agent management logic.
+- **`admin-client/`**: The professional dashboard application.
+- **`agent-client/`**: The lightweight machine-specific client.
+- **`legacy/`**: A backup of the original monolithic codebase.
+
+## Quick Start
 
 ### 1. Installation
-Each component has its own `requirements.txt`. Checkout the relevant branch first.
 
 ```bash
-git checkout [branch-name]
+# Setup environment
 python -m venv .venv
-# macOS/Linux: source .venv/bin/activate
-# Windows: .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+# source .venv/bin/activate  (Mac/Linux)
+# .\.venv\Scripts\Activate.ps1 (Windows)
+
+# Install dependencies for all components
+pip install -r server/requirements.txt
+pip install -r agent-client/requirements.txt
+pip install -r admin-client/requirements.txt
 ```
 
-### 2. server Branch Setup
-Run the setup wizard to configure your API key:
+### 2. Server Setup
+
 ```bash
-python setup.py
-python server.py
+python server/setup.py
+python server/server.py
 ```
 The server listens on **1222** (agents), **1223** (API), and **3030** (UDP discovery).
 
-### 3. agent-client Branch Setup
+### 3. Agent Client Setup
 On each client machine:
 ```bash
-python client.py
+python agent-client/client.py
 ```
-The client auto-discovers the server via UDP broadcast.
 
-### 4. admin-client Branch Setup
-Start the dashboard on any machine in the LAN:
+### 4. Admin Dashboard Setup
 ```bash
-python client.py  # Launches the professional UI
+python admin-client/client.py
 ```
 
-## Project Architecture
+## Architecture
 
 ```
-Harmony (Multi-Branch)
-├── branch:server
-│   ├── server.py        # TCP listener — accepts agent connections
-│   ├── manager.py       # Assigns queued tasks to idle agents
-│   ├── agent.py         # One Agent instance per connected client
-│   ├── api.py           # Dashboard API
-│   └── database.py      # SQLite persistence layer
-│
-├── branch:agent-client
-│   ├── client.py        # Connects to server, handles actions
-│   └── helpers.py       # Discovery and PyAutoGUI utilities
-│
-└── branch:admin-client
-    ├── client.py        # Main Dashboard UI application
-    └── ui_functions.py  # UI logic and API communication
+Harmony/
+├── server/          # TCP server and management logic
+├── agent-client/    # Connects to server, handles actions
+├── admin-client/    # Main Dashboard UI application
+└── legacy/          # Historical backup of older versions
 ```
 
 ### Data Flow
