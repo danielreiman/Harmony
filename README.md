@@ -24,8 +24,6 @@
 | **Agent Client** | [**`agent-client`**](https://github.com/danielreiman/Harmony/tree/agent-client) | Lightweight client for remote machine automation. |
 | **Legacy** | [`old-versions`](https://github.com/danielreiman/Harmony/tree/old-versions) | The previous monolithic version of the codebase. |
 
-> [!NOTE]
-> To use the single agent version of Harmony without the orchestrator, parallel agents, or the central server, switch to the `single-agent` branch (if available).
 
 ## Overview
 
@@ -35,15 +33,8 @@ Harmony is a client-server automation system that distributes tasks across multi
 - **Vision-based automation** using state-of-the-art AI models.
 - **Automatic LAN discovery** — clients find the server without manual configuration.
 - **Parallel task execution** across multiple machines simultaneously.
-- **Research mode** with native Google Docs integration.
 - **Real-time monitoring** via a professional admin dashboard.
 - **Task isolation** using session-based authentication.
-
-## How It Looks
-
-<p align="center">
-  <img src="https://github.com/danielreiman/Harmony/raw/admin-client/screenshot.png" alt="Harmony Dashboard" width="700">
-</p>
 
 ## Quick Start (Per Branch)
 
