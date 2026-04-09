@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="admin-client/icon.png" alt="Harmony" width="150">
+  <img src="https://github.com/danielreiman/Harmony/raw/admin-client/icon.png" alt="Harmony" width="150">
 </p>
 
 <h1 align="center">Harmony</h1>
@@ -12,6 +12,30 @@
   <strong>Distributed automation system for parallel task execution across multiple computers</strong>
 </p>
 
+> [!IMPORTANT]
+> **Branch Hub**: This repository is organized by component into dedicated branches. The source code is not stored on the `main` branch. Please use the navigation guide below to find the specific component you need.
+
+## 🌿 Project Navigation
+
+| Component | Branch | Description |
+| :--- | :--- | :--- |
+| **Server** | [**`server`**](https://github.com/danielreiman/Harmony/tree/server) | Core orchestration and agent management. |
+| **Admin Client** | [**`admin-client`**](https://github.com/danielreiman/Harmony/tree/admin-client) | Professional dashboard and controller UI. |
+| **Agent Client** | [**`agent-client`**](https://github.com/danielreiman/Harmony/tree/agent-client) | Automation client for remote machines. |
+| **Legacy & Unified** | [**`legacy`**](https://github.com/danielreiman/Harmony/tree/legacy) | Complete backup containing both old and new structures. |
+
+## Quick Start
+
+To work on Harmony, choose your component and switch to its branch:
+
+```bash
+# Example: Working on the server
+git checkout server
+
+# Example: Accessing the unified legacy/dev backup
+git checkout legacy
+```
+
 ## Overview
 
 Harmony is a client-server automation system that distributes tasks across multiple computers. A central server coordinates AI-powered agents, each controlling a connected client machine. Tasks are automatically assigned and executed in parallel across all available clients.
@@ -21,70 +45,6 @@ Harmony is a client-server automation system that distributes tasks across multi
 - **Automatic LAN discovery** — clients find the server without manual configuration.
 - **Parallel task execution** across multiple machines simultaneously.
 - **Real-time monitoring** via a professional admin dashboard.
-- **Task isolation** using session-based authentication.
-
-## Project Structure
-
-This repository is organized into the latest developmental components and a legacy backup for historical reference.
-
-- **`server/`**: The core FastAPI orchestration layer and agent management logic.
-- **`admin-client/`**: The professional dashboard application.
-- **`agent-client/`**: The lightweight machine-specific client.
-- **`legacy/`**: A backup of the original monolithic codebase.
-
-## Quick Start
-
-### 1. Installation
-
-```bash
-# Setup environment
-python -m venv .venv
-# source .venv/bin/activate  (Mac/Linux)
-# .\.venv\Scripts\Activate.ps1 (Windows)
-
-# Install dependencies for all components
-pip install -r server/requirements.txt
-pip install -r agent-client/requirements.txt
-pip install -r admin-client/requirements.txt
-```
-
-### 2. Server Setup
-
-```bash
-python server/setup.py
-python server/server.py
-```
-The server listens on **1222** (agents), **1223** (API), and **3030** (UDP discovery).
-
-### 3. Agent Client Setup
-On each client machine:
-```bash
-python agent-client/client.py
-```
-
-### 4. Admin Dashboard Setup
-```bash
-python admin-client/client.py
-```
-
-## Architecture
-
-```
-Harmony/
-├── server/          # TCP server and management logic
-├── agent-client/    # Connects to server, handles actions
-├── admin-client/    # Main Dashboard UI application
-└── legacy/          # Historical backup of older versions
-```
-
-### Data Flow
-
-1. **Discovery**: Agent client listens for a UDP beacon from the server.
-2. **Connection**: Client connects to server on TCP port 1222.
-3. **Orchestration**: User submits a task via the dashboard.
-4. **Assignment**: Manager assigns the task to an idle agent.
-5. **Vision**: Agent requests screenshots; AI analyzes and decides actions.
-6. **Execution**: Client executes actions via PyAutoGUI and reports back.
 
 ---
 *Harmony: Harmonizing complex agent interactions.*
