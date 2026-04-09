@@ -30,8 +30,10 @@ def write_response(sock, response):
 
 
 def handle_get_agents():
-    agents = [{"id": a["agent_id"]} for a in db.get_all_agents()
-              if a.get("status") != "disconnect_requested"]
+    agents = []
+    for a in db.get_all_agents():
+        if a.get("status") != "disconnect_requested":
+            agents.append({"id": a["agent_id"]})
     return {"agents": agents}
 
 
@@ -40,7 +42,11 @@ def handle_get_agent(agent_id):
     if agent is None:
         return {}
 
-    agent["step"] = json.loads(agent["step_json"]) if agent.get("step_json") else {}
+    if agent.get("step_json"):
+        agent["step"] = json.loads(agent["step_json"])
+    else:
+        agent["step"] = {}
+
     agent["id"] = agent.pop("agent_id")
     agent["ts"] = agent.pop("updated_at")
     return agent
@@ -52,7 +58,8 @@ def handle_get_screen(agent_id):
         return {"error": "No screenshot"}
 
     with open(screenshot_path, "rb") as f:
-        return {"data": base64.b64encode(f.read()).decode()}
+        data = base64.b64encode(f.read()).decode()
+        return {"data": data}
 
 
 def handle_send_task(request):
@@ -83,6 +90,11 @@ def handle_stop_agent(agent_id):
     return {"success": True}
 
 
+def handle_clear_agent(agent_id):
+    db.set_agent_status(agent_id, "clear_requested")
+    return {"success": True}
+
+
 def handle_disconnect_agent(agent_id):
     db.set_agent_status(agent_id, "disconnect_requested")
     try:
@@ -104,44 +116,79 @@ def handle_stop_server():
 
 
 def handle_get_tasks(request):
-    return {"tasks": db.get_tasks_for_user(request.get("user_id"))}
+    tasks = db.get_tasks_for_user(request.get("user_id"))
+    return {"tasks": tasks}
 
 
 def handle_delete_task(request):
     task_id = request.get("task_id")
     if not task_id:
         return {"error": "task_id is required"}
-    return {"success": db.delete_task(int(task_id), request.get("user_id"))}
+    
+    success = db.delete_task(int(task_id), request.get("user_id"))
+    return {"success": success}
 
 
 def handle_auth_login(request):
-    user_id = db.verify_user(request.get("username", "").strip(), request.get("password", ""))
+    u = request.get("username", "").strip()
+    p = request.get("password", "")
+    user_id = db.verify_user(u, p)
+    
     if user_id is None:
         return {"error": "Invalid username or password"}
     return {"user_id": user_id}
 
 
 def handle_auth_signup(request):
-    if not db.create_user(request.get("username", "").strip(), request.get("password", "")):
+    u = request.get("username", "").strip()
+    p = request.get("password", "")
+    
+    if not db.create_user(u, p):
         return {"error": "Username already taken"}
-    return {"user_id": db.verify_user(request.get("username", "").strip(), request.get("password", ""))}
+    
+    user_id = db.verify_user(u, p)
+    return {"user_id": user_id}
 
 
 def route_request(request):
     action = request.get("action", "")
     agent_id = request.get("agent_id", "")
 
-    if action == "get_agents":       return handle_get_agents()
-    if action == "get_agent":        return handle_get_agent(agent_id)
-    if action == "get_screen":       return handle_get_screen(agent_id)
-    if action == "send_task":        return handle_send_task(request)
-    if action == "stop_agent":       return handle_stop_agent(agent_id)
-    if action == "disconnect_agent": return handle_disconnect_agent(agent_id)
-    if action == "stop_server":      return handle_stop_server()
-    if action == "get_tasks":        return handle_get_tasks(request)
-    if action == "delete_task":      return handle_delete_task(request)
-    if action == "auth_login":       return handle_auth_login(request)
-    if action == "auth_signup":      return handle_auth_signup(request)
+    if action == "get_agents":
+        return handle_get_agents()
+    
+    if action == "get_agent":
+        return handle_get_agent(agent_id)
+    
+    if action == "get_screen":
+        return handle_get_screen(agent_id)
+    
+    if action == "send_task":
+        return handle_send_task(request)
+    
+    if action == "stop_agent":
+        return handle_stop_agent(agent_id)
+    
+    if action == "clear_agent":
+        return handle_clear_agent(agent_id)
+    
+    if action == "disconnect_agent":
+        return handle_disconnect_agent(agent_id)
+    
+    if action == "stop_server":
+        return handle_stop_server()
+    
+    if action == "get_tasks":
+        return handle_get_tasks(request)
+    
+    if action == "delete_task":
+        return handle_delete_task(request)
+    
+    if action == "auth_login":
+        return handle_auth_login(request)
+    
+    if action == "auth_signup":
+        return handle_auth_signup(request)
 
     return {"error": f"Unknown action: {action}"}
 
@@ -150,7 +197,8 @@ def handle_connection(conn):
     try:
         request = read_request(conn)
         if request is not None:
-            write_response(conn, route_request(request))
+            response = route_request(request)
+            write_response(conn, response)
     except Exception as error:
         print(f"[API] Connection error: {error}")
     finally:
@@ -171,6 +219,7 @@ def run_api(host="0.0.0.0", port=1223):
     while True:
         try:
             conn, _ = server_sock.accept()
-            threading.Thread(target=handle_connection, args=(conn,), daemon=True).start()
+            t = threading.Thread(target=handle_connection, args=(conn,), daemon=True)
+            t.start()
         except Exception:
             break

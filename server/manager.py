@@ -1,5 +1,4 @@
 import time
-
 import database as db
 
 
@@ -10,62 +9,60 @@ class Manager:
 
     def activate(self):
         while True:
-            self.remove_dead_agents()
-            self.handle_commands()
-            self.assign_tasks()
-            time.sleep(1)
+            self.tick()
+            time.sleep(0.2)
 
-    def remove_dead_agents(self):
+    def tick(self):
+        states = {}
+        for row in db.get_all_agents():
+            states[row["agent_id"]] = row
+
         with self.lock:
-            for id, agent in list(self.agents.items()):
+            for id in list(self.agents.keys()):
+                agent = self.agents[id]
+                row = states.get(id)
+
                 if agent.status == "disconnected":
-                    print(f"[Manager] Removing: {id}")
-                    db.remove_agent(id)
                     del self.agents[id]
-
-    def handle_commands(self):
-        with self.lock:
-            for id, agent in list(self.agents.items()):
-                row = db.get_agent(id)
-                if row is None:
+                    db.remove_agent(id)
                     continue
 
-                if row["status"] == "stop_requested" and agent.status == "working":
-                    agent.status = "idle"
-                    agent.task = None
-                    agent.status_msg = "Stopped"
-                    agent.save()
-                    print(f"[Manager] Stopped: {id}")
+                if row:
+                    status = row.get("status")
 
-                elif row["status"] == "disconnect_requested":
-                    agent.status = "disconnected"
-                    try:
-                        agent.conn.close()
-                    except Exception:
-                        pass
-                    print(f"[Manager] Disconnect requested: {id}")
+                    if status == "stop_requested":
+                        if agent.status == "working":
+                            agent.status = "idle"
+                            agent.task = None
+                            agent.status_msg = "Stopped"
+                            agent.save()
 
-    def assign_tasks(self):
-        with self.lock:
-            for agent in self.agents.values():
-                if agent.status != "idle":
-                    continue
+                    if status == "clear_requested":
+                        agent.status = "idle"
+                        agent.task = None
+                        agent.history = []
+                        agent.status_msg = "Memory cleared"
+                        agent.save()
+                        db.set_agent_status(id, "idle")
 
-                task = self.find_task(agent.id)
-                if task is None:
-                    continue
+                    if status == "disconnect_requested":
+                        agent.status = "disconnected"
+                        try:
+                            agent.conn.close()
+                        except Exception:
+                            pass
 
-                db.assign_task(task["id"], agent.id)
-                agent.assign(task["task"], task_id=task["id"])
-                print(f"[Manager] Assigned to {agent.id}: {task['task'][:50]}...")
+                if agent.status == "idle":
+                    task = self.get_next_task(id)
+                    
+                    if task:
+                        db.assign_task(task["id"], id)
+                        agent.assign(task["task"], task_id=task["id"])
 
-    def find_task(self, agent_id):
-        targeted = db.get_queued_tasks(agent_id=agent_id)
+    def get_next_task(self, id):
+        targeted = db.get_queued_tasks(agent_id=id)
+        
         if targeted:
             return targeted[0]
-
-        general = db.get_queued_tasks()
-        if general:
-            return general[0]
 
         return None

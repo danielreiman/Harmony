@@ -52,24 +52,29 @@ def main():
                     
                 elif m_type == "execute_step":
                     step = message.get("step", {})
-                    success = act(step)
+                    result = act(step)
                     send_message(sock, {
                         "type": "execution_result",
-                        "success": success,
-                        "error": None if success else f"Action '{step.get('Next Action', 'unknown')}' failed"
+                        "success": result["success"],
+                        "output": result.get("output"),
+                        "error": None if result["success"] else f"Action '{step.get('Next Action', 'unknown')}' failed"
                     })
         finally:
             sock.close()
             print("[Client] Disconnected")
+            try:
+                root.after(0, root.destroy)
+            except Exception:
+                pass
 
-    # Start network socket listener in the background
-    threading.Thread(target=_loop, daemon=True).start()
-
-    # Overlay Window setup on main thread
+    # Overlay Window setup
     root = tk.Tk()
     root.withdraw()
     root.overrideredirect(True)
     root.attributes("-topmost", True, "-alpha", 0.92)
+
+    # Start network socket listener in the background
+    threading.Thread(target=_loop, daemon=True).start()
     
     bg_color = "black"
     root.configure(bg=bg_color)
