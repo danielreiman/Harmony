@@ -1,0 +1,4 @@
+## Install each component's dependencies separately:
+##   cd server        && python3 -m pip install -r requirements.txt
+##   cd agent-client  && python3 -m pip install -r requirements.txt
+##   cd admin-client  && python3 -m pip install -r requirements.txt
