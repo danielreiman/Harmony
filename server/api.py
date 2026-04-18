@@ -31,9 +31,12 @@ def write_response(sock, response):
 
 def handle_get_agents():
     agents = []
+    hidden_statuses = {"disconnected", "disconnect_requested"}
     for a in db.get_all_agents():
-        if a.get("status") != "disconnect_requested":
-            agents.append({"id": a["agent_id"]})
+        status = a.get("status", "idle")
+        if status in hidden_statuses:
+            continue
+        agents.append({"id": a["agent_id"], "status": status})
     return {"agents": agents}
 
 
