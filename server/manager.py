@@ -18,13 +18,21 @@ class Manager:
             states[row["agent_id"]] = row
 
         with self.lock:
-            for id in list(self.agents.keys()):
-                agent = self.agents[id]
-                row = states.get(id)
+            active_agent_ids = set(self.agents.keys())
+
+            # The agents table is a live registry, not history. If the server
+            # restarted or a client disappeared, remove DB rows that no longer
+            # have an in-memory connection.
+            for agent_id in set(states) - active_agent_ids:
+                db.remove_agent(agent_id)
+
+            for agent_id in list(self.agents.keys()):
+                agent = self.agents[agent_id]
+                row = states.get(agent_id)
 
                 if agent.status == "disconnected":
-                    del self.agents[id]
-                    db.remove_agent(id)
+                    del self.agents[agent_id]
+                    db.remove_agent(agent_id)
                     continue
 
                 if row:
@@ -43,7 +51,7 @@ class Manager:
                         agent.history = []
                         agent.status_msg = "Memory cleared"
                         agent.save()
-                        db.set_agent_status(id, "idle")
+                        db.set_agent_status(agent_id, "idle")
 
                     if status == "disconnect_requested":
                         agent.status = "disconnected"
@@ -53,10 +61,10 @@ class Manager:
                             pass
 
                 if agent.status == "idle":
-                    task = self.get_next_task(id)
+                    task = self.get_next_task(agent_id)
                     
                     if task:
-                        db.assign_task(task["id"], id)
+                        db.assign_task(task["id"], agent_id)
                         agent.assign(task["task"], task_id=task["id"])
 
     def get_next_task(self, id):
