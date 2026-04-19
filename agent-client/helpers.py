@@ -74,11 +74,24 @@ def act(step):
             pyautogui.click(button="right")
             
         elif action == "drag":
-            ex, ey = _normalize_coordinate(step.get("EndCoordinate"), screen_width, screen_height)
+            end_coord = step.get("EndCoordinate") or step.get("End Coordinate") or step.get("end_coordinate")
+            if not end_coord:
+                return {"success": False, "output": "drag requires EndCoordinate"}
+            ex, ey = _normalize_coordinate(end_coord, screen_width, screen_height)
+
+            # Ensure cursor is settled at start before pressing.
+            pyautogui.moveTo(nx, ny, duration=MOUSE_MOVE_DURATION)
+            time.sleep(0.15)
             pyautogui.mouseDown(button="left")
-            time.sleep(0.1)
-            pyautogui.moveTo(ex, ey, duration=MOUSE_MOVE_DURATION * 2)
-            time.sleep(0.1)
+            time.sleep(0.25)
+
+            # Stepped move — OS drag detection needs intermediate motion events.
+            steps = 30
+            for i in range(1, steps + 1):
+                ix = nx + (ex - nx) * i / steps
+                iy = ny + (ey - ny) * i / steps
+                pyautogui.moveTo(ix, iy, duration=0.02)
+            time.sleep(0.25)
             pyautogui.mouseUp(button="left")
 
         elif action == "type":

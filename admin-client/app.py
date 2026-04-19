@@ -364,44 +364,111 @@ class HarmonyApp(ctk.CTk):
         self.screenshot_label.place(relx=0.5, rely=0.5, anchor="center")
 
     def _build_floating_state_panel(self):
+        CARD_W          = 360
+        PANEL_BG        = "#282828"
+        PANEL_BORDER    = "#3a3a3a"
+        ACTION_BG       = "#f1f1f3"
+        ACTION_BORDER   = "#d8d8d8"
+        CARD_RADIUS     = 18
+        CARD_GAP        = 18
+        CARD_PAD_X      = 22
+        CARD_PAD_Y      = 22
+        LABEL_GAP       = 10
+        LABEL_FONT      = (FONT_MONO, 11, "bold")
+        HEADLINE_FONT   = (FONT, 22, "bold")
+        BODY_FONT       = (FONT, 14)
+        BODY_COLOR      = "#c9c9ce"
+        WRAP            = CARD_W - CARD_PAD_X * 2
+
+        def label(parent, text):
+            return ctk.CTkLabel(parent, text=text, font=LABEL_FONT,
+                                text_color=LABEL_COLOR, anchor="w")
+
+        # Outer column — transparent; each section gets its own card.
+        # Anchored to the top-right corner, fills the full height of the content area.
         self.info_cards_container = ctk.CTkFrame(self.screenshot_and_panels,
-            fg_color="#262626", corner_radius=18, border_width=1,
-            border_color="#363636", width=300, height=320)
-        self.info_cards_container.place(relx=1.0, rely=0.5, x=-18, anchor="e")
+            fg_color="transparent", width=CARD_W)
+        self.info_cards_container.place(relx=1.0, rely=0.0, relheight=1.0,
+                                        x=-10, anchor="ne")
         self.info_cards_container.pack_propagate(False)
 
-        head = ctk.CTkFrame(self.info_cards_container, fg_color="transparent")
-        head.pack(fill="x", padx=18, pady=(16, 8))
-        self.selected_agent_title = ctk.CTkLabel(head, text="No agent selected",
-            font=(FONT, 14, "bold"), text_color="#f4f4f4", anchor="w")
-        self.selected_agent_title.pack(side="left")
-        self.status_chip = ctk.CTkFrame(head, fg_color="#333333", corner_radius=14)
-        self.status_chip.pack(side="right")
-        self.status_chip_label = ctk.CTkLabel(self.status_chip, text="offline",
-            font=(FONT, 10, "bold"), text_color="#a3a3a3")
-        self.status_chip_label.pack(padx=9, pady=4)
+        # Vertical spacer pushes cards to center
+        ctk.CTkFrame(self.info_cards_container, fg_color="transparent").pack(
+            fill="both", expand=True)
 
-        _section_label(self.info_cards_container, "ACTION").pack(
-            padx=18, pady=(0, 5), anchor="w")
+        # ACTION card — white background, dark text
+        action_card = ctk.CTkFrame(self.info_cards_container,
+            fg_color=ACTION_BG, corner_radius=CARD_RADIUS,
+            border_width=1, border_color=ACTION_BORDER)
+        action_card.pack(fill="x", pady=(0, CARD_GAP))
+        ctk.CTkLabel(action_card, text="ACTION", font=LABEL_FONT,
+            text_color="#6a6a70", anchor="w").pack(
+            fill="x", padx=CARD_PAD_X, pady=(CARD_PAD_Y, LABEL_GAP), anchor="w")
+        self.action_textbox = ctk.CTkLabel(action_card, text="—",
+            font=HEADLINE_FONT, text_color=PANEL_BG, anchor="w",
+            justify="left", wraplength=WRAP)
+        self.action_textbox.pack(fill="x", padx=CARD_PAD_X, pady=(0, CARD_PAD_Y))
 
-        self.action_textbox = ctk.CTkLabel(self.info_cards_container, text="—",
-            font=(FONT, 13, "bold"), text_color="#f4f4f4", anchor="w",
-            justify="left", wraplength=254)
-        self.action_textbox.pack(fill="x", padx=18)
+        # REASONING card — dark background
+        reason_card = ctk.CTkFrame(self.info_cards_container,
+            fg_color=PANEL_BG, corner_radius=CARD_RADIUS,
+            border_width=1, border_color=PANEL_BORDER)
+        reason_card.pack(fill="x", pady=(0, 0))
 
-        _section_label(self.info_cards_container, "REASONING").pack(
-            padx=18, pady=(18, 5), anchor="w")
+        # Bottom spacer mirrors the top one
+        ctk.CTkFrame(self.info_cards_container, fg_color="transparent").pack(
+            fill="both", expand=True)
+        ctk.CTkLabel(reason_card, text="REASONING", font=LABEL_FONT,
+            text_color="#7a7a80", anchor="w").pack(
+            fill="x", padx=CARD_PAD_X, pady=(CARD_PAD_Y, LABEL_GAP), anchor="w")
+        self.reasoning_textbox = ctk.CTkLabel(reason_card, text="—",
+            font=BODY_FONT, text_color=BODY_COLOR, anchor="nw",
+            justify="left", wraplength=WRAP)
+        self.reasoning_textbox.pack(fill="x",
+            padx=CARD_PAD_X, pady=(0, CARD_PAD_Y), anchor="nw")
 
-        self.reasoning_textbox = _ROText(self.info_cards_container,
-            font=(FONT, 12), text_color="#b9b9b9", fg_color="transparent",
-            wrap="word", height=128, border_width=0)
-        self.reasoning_textbox.configure(text="—")
-        self.reasoning_textbox.pack(fill="both", expand=True, padx=12, pady=(0, 14))
+        self.plan_card = ctk.CTkFrame(reason_card, fg_color="transparent")
+        self.plan_text_label = ctk.CTkLabel(self.plan_card, text="",
+            font=(FONT, 11), text_color="#8c8c8c", anchor="w", justify="left",
+            wraplength=WRAP)
+        self.plan_text_label.pack(fill="x", padx=CARD_PAD_X)
 
-        self.plan_card = ctk.CTkFrame(self.info_cards_container, fg_color="transparent")
-        self.plan_text_label = ctk.CTkLabel(self.plan_card, text="", font=(FONT, 11),
-            text_color="#8c8c8c", anchor="w", justify="left", wraplength=254)
-        self.plan_text_label.pack(fill="x", padx=18)
+        # Removed from this panel — kept as hidden stubs so other code can
+        # still call .configure on them without errors.
+        self.selected_agent_title = ctk.CTkLabel(self, text="")
+        self.status_chip          = ctk.CTkFrame(self, fg_color="transparent")
+        self.status_chip_label    = ctk.CTkLabel(self.status_chip, text="")
+
+    _ACTION_LABELS = {
+        "left_click": "Left Click", "click": "Left Click",
+        "double_click": "Double Click", "right_click": "Right Click",
+        "drag": "Drag", "type": "Type", "press_key": "Press",
+        "hotkey": "Hotkey", "scroll_up": "Scroll Up", "scroll_down": "Scroll Down",
+        "run_command": "Run Command", "wait": "Wait",
+    }
+
+    def _format_action(self, action, coordinate, value, end_coord=None):
+        if not action or str(action).lower() == "none":
+            return "—"
+        pretty = self._ACTION_LABELS.get(str(action).lower(), str(action).replace("_", " ").title())
+        parts = [pretty]
+        if coordinate:
+            try:
+                x, y = coordinate[0], coordinate[1]
+                parts.append(f"[{int(x)}, {int(y)}]")
+            except Exception:
+                parts.append(str(coordinate))
+        if end_coord:
+            try:
+                x, y = end_coord[0], end_coord[1]
+                parts.append(f"→ [{int(x)}, {int(y)}]")
+            except Exception:
+                pass
+        if value is not None and value != "":
+            val = str(value)
+            if len(val) > 48: val = val[:45] + "…"
+            parts.append(f'"{val}"')
+        return " ".join(parts)
 
     def _build_empty_state(self):
         self.empty_state_overlay = ctk.CTkFrame(self.screenshot_and_panels, fg_color=BG)
@@ -465,40 +532,55 @@ class HarmonyApp(ctk.CTk):
         self.reset_memory_button.pack(side="right", padx=(12, 0))
         self._is_reset_visible = True; self._hide_reset_button()
 
-        # Layered composer: strip behind prompt box bottom edge
-        STRIP_H, OVERLAP, PROMPT_H = 58, 18, 114
-        STRIP_W = 800
-        COMPOSER_H = STRIP_H - OVERLAP + PROMPT_H
+        # Layered composer: task strip peeks out above and tucks behind the
+        # prompt box. OVERLAP is how much of the strip hides behind the prompt.
+        STRIP_MIN_H, STRIP_W, PROMPT_H, OVERLAP = 58, 800, 114, 22
+        COMPOSER_H = STRIP_MIN_H - OVERLAP + PROMPT_H
 
-        composer = ctk.CTkFrame(wrap, fg_color="transparent", width=884, height=COMPOSER_H)
+        composer = ctk.CTkFrame(wrap, fg_color="transparent",
+                                width=884, height=COMPOSER_H)
         composer.pack(fill="x", side="bottom", pady=(0, 12))
         composer.pack_propagate(False)
 
         self.prompt_strip = ctk.CTkFrame(composer, fg_color="#242424",
-            corner_radius=20, border_width=1, border_color="#343434",
-            width=STRIP_W, height=STRIP_H)
+            corner_radius=18, border_width=1, border_color="#343434",
+            width=STRIP_W, height=STRIP_MIN_H)
         self.prompt_strip.place(relx=0.5, y=0, anchor="n")
         self.prompt_strip.pack_propagate(False)
 
-        VISIBLE_CY = (STRIP_H - OVERLAP) // 2
+        # Visible content sits in the top band (everything below the prompt
+        # overlap is hidden behind the prompt box).
+        visible_cy = (STRIP_MIN_H - OVERLAP) // 2
+
         strip_inner = ctk.CTkFrame(self.prompt_strip, fg_color="transparent")
-        strip_inner.place(relx=0, y=VISIBLE_CY, x=18, anchor="w", relwidth=0.88)
+        strip_inner.place(relx=0, y=visible_cy, x=20, anchor="w", relwidth=0.83)
         ctk.CTkLabel(strip_inner, text="Current Task:", font=(FONT, 13, "bold"),
-                     text_color="#777777").pack(side="left", padx=(0, 8))
+                     text_color="#8a8a8a", anchor="w").pack(side="left", padx=(0, 10))
         self.strip_task_label = ctk.CTkLabel(strip_inner, text="No active task",
-            font=(FONT, 13, "bold"), text_color="#d8d8d8", anchor="w", justify="left")
+            font=(FONT, 13, "bold"), text_color="#e8e8e8",
+            anchor="w", justify="left")
         self.strip_task_label.pack(side="left", fill="x", expand=True)
+
         self.strip_toggle = ctk.CTkButton(self.prompt_strip, text="Show more",
-            width=86, height=26, corner_radius=13, fg_color="transparent",
-            hover_color="#303030", text_color="#f4f4f4", font=(FONT, 11, "bold"),
-            border_width=0, command=self._toggle_task_expand)
-        self.strip_toggle.place(relx=1.0, y=VISIBLE_CY, x=-16, anchor="e")
+            width=92, height=26, corner_radius=13, fg_color="transparent",
+            hover_color="#303030", text_color="#f0f0f0",
+            font=(FONT, 11, "bold"), border_width=0,
+            command=self._toggle_task_expand)
+        self.strip_toggle.place(relx=1.0, y=visible_cy, x=-16, anchor="e")
 
         self.prompt_box = ctk.CTkFrame(composer, fg_color="#282828",
-            corner_radius=18, border_width=1, border_color="#343434", height=PROMPT_H)
-        self.prompt_box.place(x=0, y=STRIP_H - OVERLAP, relwidth=1)
+            corner_radius=18, border_width=1, border_color="#343434",
+            height=PROMPT_H)
+        self.prompt_box.place(x=0, y=STRIP_MIN_H - OVERLAP, relwidth=1)
         self.prompt_box.pack_propagate(False)
         self.prompt_box.lift()
+
+        self._composer     = composer
+        self._strip_min_h  = STRIP_MIN_H
+        self._strip_w      = STRIP_W
+        self._strip_overlap = OVERLAP
+        self._strip_visible_cy = visible_cy
+        self._prompt_h     = PROMPT_H
 
         self.task_input = ctk.CTkEntry(self.prompt_box,
             placeholder_text=TASK_PLACEHOLDER,
@@ -525,8 +607,14 @@ class HarmonyApp(ctk.CTk):
             highlightthickness=0, bg="#282828", cursor="hand2")
         self.send_stop_bg   = self.send_stop_button.create_oval(0, 0, 36, 36,
                                                                  fill="#f5f5f5", outline="")
+        # Play triangle needs a smaller font; stop square uses a filled rect so it
+        # looks crisp and stays perfectly centered.
         self.send_stop_text = self.send_stop_button.create_text(18, 18,
-            text=SEND_ICON, fill="#2b2b2b", font=(FONT, 13, "bold"))
+            text=SEND_ICON, fill="#2b2b2b", font=(FONT, 14, "bold"))
+        sq = 12
+        self.send_stop_square = self.send_stop_button.create_rectangle(
+            18 - sq // 2, 18 - sq // 2, 18 + sq // 2, 18 + sq // 2,
+            fill="#2b2b2b", outline="", state="hidden")
 
         def send_enter(_e):
             self._sync_send_button_visual(hover=True)
@@ -632,26 +720,33 @@ class HarmonyApp(ctk.CTk):
         self._apply_task_display()
 
     def _apply_task_display(self):
-        TRUNC, WRAP = 90, 620
-        STRIP_H, OVERLAP = 58, 18
-        VISIBLE_CY = (STRIP_H - OVERLAP) // 2
-        text = self._full_task_text or "No active task"
-        long = len(text) > TRUNC
+        TRUNC = 90
+        min_h = self._strip_min_h
+        text  = self._full_task_text or "No active task"
+        long  = len(text) > TRUNC
 
+        wrap_px = self._strip_w - 220
         if self._is_task_expanded and long:
-            self.strip_task_label.configure(text=text, wraplength=WRAP)
+            self.strip_task_label.configure(text=text, wraplength=wrap_px)
             self.strip_toggle.configure(text="Show less")
-            approx_lines = max(1, -(-len(text) // 90))
-            self.prompt_strip.configure(height=STRIP_H + (approx_lines - 1) * 20)
+            approx_lines = max(1, -(-len(text) // 80))
+            target_h = min_h + (approx_lines - 1) * 20
         else:
             disp = text if not long else text[:TRUNC - 1].rstrip() + "…"
             self.strip_task_label.configure(text=disp, wraplength=0)
             self.strip_toggle.configure(text="Show more")
-            self.prompt_strip.configure(height=STRIP_H)
+            target_h = min_h
 
-        self.strip_task_label.master.place(relx=0, y=VISIBLE_CY, x=18, anchor="w", relwidth=0.88)
+        # Grow the strip. Prompt stays at the same spot so the bottom of the
+        # strip tucks behind it (classic "peeking capsule" look).
+        self.prompt_strip.configure(height=target_h)
+        composer_h = target_h - self._strip_overlap + self._prompt_h
+        self._composer.configure(height=composer_h)
+        self.prompt_box.place_configure(y=target_h - self._strip_overlap)
+
         if long:
-            self.strip_toggle.place(relx=1.0, y=VISIBLE_CY, x=-16, anchor="e")
+            self.strip_toggle.place(relx=1.0, y=self._strip_visible_cy,
+                                    x=-16, anchor="e")
         else:
             self.strip_toggle.place_forget()
 
@@ -729,11 +824,16 @@ class HarmonyApp(ctk.CTk):
         fill = "#ff777a" if stop_mode and hover else \
                "#ff6467" if stop_mode else \
                "#e8e8e8" if hover else "#f5f5f5"
-        self.send_stop_button.itemconfig(
-            self.send_stop_bg, fill=fill)
-        self.send_stop_button.itemconfig(
-            self.send_stop_text, text="■" if stop_mode else SEND_ICON,
-            fill="#1f1f1f", font=(FONT, 13, "bold"))
+        self.send_stop_button.itemconfig(self.send_stop_bg, fill=fill)
+        if stop_mode:
+            self.send_stop_button.itemconfig(self.send_stop_text, state="hidden")
+            self.send_stop_button.itemconfig(self.send_stop_square, state="normal",
+                                              fill="#1f1f1f")
+        else:
+            self.send_stop_button.itemconfig(self.send_stop_square, state="hidden")
+            self.send_stop_button.itemconfig(
+                self.send_stop_text, state="normal", text=SEND_ICON,
+                fill="#1f1f1f", font=(FONT, 14, "bold"))
 
     def _send_task_or_stop_agent(self):
         task_text = self.task_input.get().strip()
@@ -913,20 +1013,15 @@ class HarmonyApp(ctk.CTk):
                 ).hexdigest()
                 if fp != self._prev_step_hash:
                     self._prev_step_hash = fp
-                    action_parts = []
-                    disp_action = action_text if action_text and action_text.lower() != "none" else ""
-                    if disp_action:
-                        action_parts.append(disp_action)
-                    if coordinate:
-                        action_parts.append(f"Coordinates: {coordinate}")
-                    if value:
-                        action_parts.append(f"Value: {value}")
-                    if cmd_output:
-                        action_parts.append(f"Output: {str(cmd_output)}")
-                    disp_action    = "\n".join(action_parts) or "—"
+                    end_coord = step_data.get("end_coordinate") or step_data.get("EndCoordinate")
+                    is_done = (agent_status == "idle" and
+                               (not action_text or action_text.lower() in ("none", "")))
+                    primary = "🎉 Done!" if is_done else \
+                              self._format_action(action_text, coordinate, value, end_coord)
                     disp_reasoning = reasoning_text or "—"
-                    disp_task      = current_task or "No active task"
-                    self.after(0, lambda a=disp_action: self.action_textbox.configure(text=a))
+                    disp_task = current_task or "No active task"
+
+                    self.after(0, lambda a=primary: self.action_textbox.configure(text=a))
                     self.after(0, lambda r=disp_reasoning: self.reasoning_textbox.configure(text=r))
                     self.after(0, lambda t=disp_task: self._set_task_text(t))
 
