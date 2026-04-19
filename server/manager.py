@@ -2,6 +2,9 @@ import time
 import database as db
 
 
+POLL_INTERVAL_SECONDS = 0.2
+
+
 class Manager:
     def __init__(self, agents, agents_lock):
         self.agents = agents
@@ -10,67 +13,69 @@ class Manager:
     def activate(self):
         while True:
             self.tick()
-            time.sleep(0.2)
+            time.sleep(POLL_INTERVAL_SECONDS)
 
     def tick(self):
-        states = {}
-        for row in db.get_all_agents():
-            states[row["agent_id"]] = row
+        db_agents = {row["agent_id"]: row for row in db.get_all_agents()}
 
         with self.lock:
-            active_agent_ids = set(self.agents.keys())
+            self._remove_stale_db_agents(db_agents)
 
-            # The agents table is a live registry, not history. If the server
-            # restarted or a client disappeared, remove DB rows that no longer
-            # have an in-memory connection.
-            for agent_id in set(states) - active_agent_ids:
-                db.remove_agent(agent_id)
-
-            for agent_id in list(self.agents.keys()):
-                agent = self.agents[agent_id]
-                row = states.get(agent_id)
-
-                if agent.status == "disconnected":
-                    del self.agents[agent_id]
-                    db.remove_agent(agent_id)
+            for agent_id, agent in list(self.agents.items()):
+                if self._remove_if_disconnected(agent_id, agent):
                     continue
 
-                if row:
-                    status = row.get("status")
+                self._handle_requested_status(agent_id, agent, db_agents.get(agent_id))
+                self._assign_next_task_if_idle(agent_id, agent)
 
-                    if status == "stop_requested":
-                        if agent.status == "working":
-                            agent.status = "idle"
-                            agent.task = None
-                            agent.status_msg = "Stopped"
-                            agent.save()
+    def _remove_stale_db_agents(self, db_agents):
+        """Drop DB rows for agents that are not connected in this process."""
+        for agent_id in set(db_agents) - set(self.agents):
+            db.remove_agent(agent_id)
 
-                    if status == "clear_requested":
-                        agent.status = "idle"
-                        agent.task = None
-                        agent.history = []
-                        agent.status_msg = "Memory cleared"
-                        agent.save()
-                        db.set_agent_status(agent_id, "idle")
+    def _remove_if_disconnected(self, agent_id, agent):
+        if agent.status != "disconnected":
+            return False
 
-                    if status == "disconnect_requested":
-                        agent.status = "disconnected"
-                        try:
-                            agent.conn.close()
-                        except Exception:
-                            pass
+        del self.agents[agent_id]
+        db.remove_agent(agent_id)
+        return True
 
-                if agent.status == "idle":
-                    task = self.get_next_task(agent_id)
-                    
-                    if task:
-                        db.assign_task(task["id"], agent_id)
-                        agent.assign(task["task"], task_id=task["id"])
+    def _handle_requested_status(self, agent_id, agent, db_row):
+        if not db_row:
+            return
 
-    def get_next_task(self, id):
-        targeted = db.get_queued_tasks(agent_id=id)
-        
-        if targeted:
-            return targeted[0]
+        status = db_row.get("status")
+        if status == "stop_requested":
+            if agent.status == "working":
+                agent.status = "idle"
+                agent.task = None
+                agent.status_msg = "Stopped"
+                agent.save()
 
-        return None
+        elif status == "clear_requested":
+            agent.status = "idle"
+            agent.task = None
+            agent.history = []
+            agent.status_msg = "Memory cleared"
+            agent.save()
+            db.set_agent_status(agent_id, "idle")
+
+        elif status == "disconnect_requested":
+            agent.status = "disconnected"
+            try:
+                agent.conn.close()
+            except Exception:
+                pass
+
+    def _assign_next_task_if_idle(self, agent_id, agent):
+        if agent.status != "idle":
+            return
+
+        queued_tasks = db.get_queued_tasks(agent_id=agent_id)
+        if not queued_tasks:
+            return
+
+        task = queued_tasks[0]
+        db.assign_task(task["id"], agent_id)
+        agent.assign(task["task"], task_id=task["id"])
