@@ -1,4 +1,4 @@
-import os, threading, json, time
+import os, threading, json, time, traceback
 from ollama import Client
 
 import config
@@ -31,17 +31,28 @@ class Agent:
 
     def activate(self):
         send({"type": "connected", "agent_id": self.id}, self.conn)
+        print(f"[Agent {self.id}] Ready")
         try:
             while True:
                 self.task_ready.wait()
                 self.task_ready.clear()
-                if not self.run(): break
+                try:
+                    keep = self.run()
+                except Exception as e:
+                    print(f"[Agent {self.id}] Step error: {e}\n{traceback.format_exc()}")
+                    self.status_msg = f"Recovered from error: {type(e).__name__}"
+                    self.status = "idle"
+                    self.task = None
+                    self.save()
+                    continue
+                if not keep: break
                 self.status, self.status_msg = "idle", "Idle"
                 self.save()
         except Exception as e:
-            print(f"[Agent {self.id}] Error: {e}")
+            print(f"[Agent {self.id}] Fatal: {e}\n{traceback.format_exc()}")
         finally:
             self.status = "disconnected"
+            print(f"[Agent {self.id}] Disconnected")
             try: self.conn.close()
             except: pass
 
@@ -72,24 +83,30 @@ class Agent:
             # 2. Think
             self.status_msg = "Thinking..."
             self.save()
-            messages = self.history[:2] + self.history[2:][-MAX_HISTORY_LENGTH:]
+            head = self.history[:2] if len(self.history) >= 2 else list(self.history)
+            tail = self.history[2:][-MAX_HISTORY_LENGTH:] if len(self.history) > 2 else []
+            messages = head + tail
             try:
-                raw_text = self.ai.chat(model=self.model, messages=messages)["message"]["content"].strip()
+                response = self.ai.chat(model=self.model, messages=messages)
+                raw_text = (response.get("message", {}).get("content") or "").strip()
             except Exception as e:
-                print(f"[Agent] AI Error: {e}")
+                print(f"[Agent {self.id}] AI error: {e}")
                 return False
-                
-            res = extract_json(raw_text) or {}
+
+            res = extract_json(raw_text)
+            if not isinstance(res, dict):
+                res = {}
             self.step = {
-                "status_short": res.get("Status", "Working..."),
-                "reasoning": res.get("Reasoning", ""),
+                "status_short": str(res.get("Status", "Working..."))[:40],
+                "reasoning": res.get("Reasoning", "") or "",
                 "action": res.get("Next Action"),
                 "coordinate": res.get("Coordinate"),
                 "value": res.get("Value")
             }
 
             # Cleanup images from history to save tokens/memory
-            if self.history[-1].get("images"): self.history[-1].pop("images")
+            if self.history and isinstance(self.history[-1], dict) and self.history[-1].get("images"):
+                self.history[-1].pop("images", None)
             self.history.append({"role": "assistant", "content": raw_text})
 
             # 3. Done check
