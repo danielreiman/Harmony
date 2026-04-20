@@ -7,6 +7,7 @@ import shutil
 import time
 import socket
 import database as db
+import airvoice
 from config import RUNTIME_DIR
 from helpers import read_exact
 
@@ -52,6 +53,7 @@ def handle_get_agent(agent_id):
 
     agent["id"] = agent.pop("agent_id")
     agent["ts"] = agent.pop("updated_at")
+    agent["voice_enabled"] = airvoice.is_enabled(agent["id"])
     return agent
 
 
@@ -142,6 +144,32 @@ def handle_auth_login(request):
     return {"user_id": user_id}
 
 
+def handle_enable_voice(request):
+    agent_id = request.get("agent_id")
+    if not agent_id:
+        return {"error": "agent_id is required"}
+    if db.get_agent(agent_id) is None:
+        return {"error": f"Agent {agent_id} not found"}
+    try:
+        airvoice.enable(
+            agent_id,
+            host=request.get("host"),
+            username=request.get("username"),
+            password=request.get("password"),
+        )
+        return {"success": True, "voice_enabled": True}
+    except Exception as error:
+        return {"error": str(error)}
+
+
+def handle_disable_voice(request):
+    agent_id = request.get("agent_id")
+    if not agent_id:
+        return {"error": "agent_id is required"}
+    airvoice.disable(agent_id)
+    return {"success": True, "voice_enabled": False}
+
+
 def handle_auth_signup(request):
     u = request.get("username", "").strip()
     p = request.get("password", "")
@@ -189,9 +217,15 @@ def route_request(request):
     
     if action == "auth_login":
         return handle_auth_login(request)
-    
+
     if action == "auth_signup":
         return handle_auth_signup(request)
+
+    if action == "enable_voice":
+        return handle_enable_voice(request)
+
+    if action == "disable_voice":
+        return handle_disable_voice(request)
 
     return {"error": f"Unknown action: {action}"}
 

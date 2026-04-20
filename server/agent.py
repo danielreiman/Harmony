@@ -1,5 +1,6 @@
 import os, threading, json, time, traceback
 from ollama import Client
+from PIL import Image, ImageOps
 
 import config
 from config import RUNTIME_DIR
@@ -8,6 +9,33 @@ from helpers import send, recv, receive_file, extract_json
 import database as db
 
 MAX_HISTORY_LENGTH = 150
+MAX_AI_SCREENSHOT_BYTES = 1_500_000
+MAX_AI_SCREENSHOT_SIDE = 1280
+MIN_AI_SCREENSHOT_QUALITY = 35
+
+
+def prepare_screenshot_for_ai(source_path, output_path):
+    try:
+        with Image.open(source_path) as image:
+            image = ImageOps.exif_transpose(image)
+            image.thumbnail((MAX_AI_SCREENSHOT_SIDE, MAX_AI_SCREENSHOT_SIDE), Image.Resampling.LANCZOS)
+
+            if image.mode != "RGB":
+                image = image.convert("RGB")
+
+            quality = 70
+            while quality >= MIN_AI_SCREENSHOT_QUALITY:
+                image.save(output_path, format="JPEG", quality=quality, optimize=True)
+                if os.path.getsize(output_path) <= MAX_AI_SCREENSHOT_BYTES:
+                    return output_path
+                quality -= 10
+
+            image.save(output_path, format="JPEG", quality=MIN_AI_SCREENSHOT_QUALITY, optimize=True)
+            return output_path
+    except Exception as error:
+        print(f"[Agent] Could not shrink screenshot for AI: {error}")
+        return source_path
+
 
 class Agent:
     def __init__(self, id, model, conn):
@@ -22,6 +50,7 @@ class Agent:
         self.history = []
         self.task_ready = threading.Event()
         self.screen_path = os.path.join(RUNTIME_DIR, f"screenshot_{self.id}.png")
+        self.ai_screen_path = os.path.join(RUNTIME_DIR, f"screenshot_{self.id}_ai.jpg")
         os.makedirs(RUNTIME_DIR, exist_ok=True)
 
         api_key = config.OLLAMA_API_KEY
@@ -77,8 +106,9 @@ class Agent:
             self.save()
             if not send({"type": "request_screenshot"}, self.conn): return False
             if not receive_file(self.screen_path, self.conn): return False
-            
-            self.history.append({"role": "user", "content": "Current screen:", "images": [self.screen_path]})
+
+            ai_screen_path = prepare_screenshot_for_ai(self.screen_path, self.ai_screen_path)
+            self.history.append({"role": "user", "content": "Current screen:", "images": [ai_screen_path]})
 
             # 2. Think
             self.status_msg = "Thinking..."
@@ -91,7 +121,11 @@ class Agent:
                 raw_text = (response.get("message", {}).get("content") or "").strip()
             except Exception as e:
                 print(f"[Agent {self.id}] AI error: {e}")
-                return False
+                self.status = "idle"
+                self.status_msg = f"AI error: {type(e).__name__}"
+                self.task = None
+                self.save()
+                return True
 
             res = extract_json(raw_text)
             if not isinstance(res, dict):

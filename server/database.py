@@ -7,21 +7,32 @@ import time
 
 
 DATABASE_FILE_PATH = os.path.join(os.path.dirname(__file__), "harmony.db")
+DATABASE_CONNECTION_TIMEOUT_SECONDS = 30
+DATABASE_BUSY_TIMEOUT_MILLISECONDS = 30_000
 
-# Each thread gets its own database connection
-per_thread_storage = threading.local()
+# SQLite connections are not shared across threads.
+current_thread_database = threading.local()
 
 
 def get_connection():
-    if not hasattr(per_thread_storage, "connection"):
-        connection = sqlite3.connect(DATABASE_FILE_PATH, timeout=30, isolation_level=None)
-        connection.execute("PRAGMA journal_mode=WAL")
-        connection.execute("PRAGMA busy_timeout=30000")
-        connection.execute("PRAGMA synchronous=NORMAL")
-        connection.execute("PRAGMA foreign_keys=ON")
-        connection.row_factory = sqlite3.Row
-        per_thread_storage.connection = connection
-    return per_thread_storage.connection
+    existing_connection = getattr(current_thread_database, "connection", None)
+    if existing_connection is not None:
+        return existing_connection
+
+    connection = sqlite3.connect(
+        DATABASE_FILE_PATH,
+        timeout=DATABASE_CONNECTION_TIMEOUT_SECONDS,
+        isolation_level=None,
+    )
+
+    connection.execute("PRAGMA journal_mode=WAL")
+    connection.execute(f"PRAGMA busy_timeout={DATABASE_BUSY_TIMEOUT_MILLISECONDS}")
+    connection.execute("PRAGMA synchronous=NORMAL")
+    connection.execute("PRAGMA foreign_keys=ON")
+    connection.row_factory = sqlite3.Row
+
+    current_thread_database.connection = connection
+    return connection
 
 
 def fetch_all_rows(sql, params=()):

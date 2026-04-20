@@ -531,6 +531,7 @@ class HarmonyApp(ctk.CTk):
             command=self._reset_current_agent)
         self.reset_memory_button.pack(side="right", padx=(12, 0))
         self._is_reset_visible = True; self._hide_reset_button()
+        self._voice_enabled = False
 
         # Layered composer: task strip peeks out above and tucks behind the
         # prompt box. OVERLAP is how much of the strip hides behind the prompt.
@@ -593,6 +594,18 @@ class HarmonyApp(ctk.CTk):
 
         tools = ctk.CTkFrame(self.prompt_box, fg_color="transparent")
         tools.pack(fill="x", padx=16, pady=(16, 0))
+
+        left = ctk.CTkFrame(tools, fg_color="transparent")
+        left.pack(side="left")
+
+        self.voice_button = ctk.CTkButton(left, text="AirVoice Connector: OFF",
+            width=204, height=30, corner_radius=6, fg_color="transparent",
+            hover_color="#282828", text_color=MUTED, font=(FONT, 13, "bold"),
+            border_width=0, border_spacing=0, anchor="w",
+            command=self._toggle_voice_for_current_agent)
+        self.voice_button.pack(side="left")
+        self._is_voice_visible = True; self._hide_voice_button()
+
         right = ctk.CTkFrame(tools, fg_color="transparent"); right.pack(side="right")
 
         self.agent_dropdown = ctk.CTkOptionMenu(right, values=["No agents"],
@@ -671,6 +684,26 @@ class HarmonyApp(ctk.CTk):
         self._on_agent_selection_changed(None)
         self._run_in_background(self._fetch_agents_from_server)
 
+    def _toggle_voice_for_current_agent(self):
+        if not self.selected_agent: return
+        agent_id = self.selected_agent
+        turning_on = not self._voice_enabled
+        action = "enable_voice" if turning_on else "disable_voice"
+        self._write_system_log(
+            f"{'Enabling' if turning_on else 'Disabling'} voice for {agent_id}")
+
+        def background():
+            response = request({"action": action, "agent_id": agent_id})
+            enabled = bool(response.get("voice_enabled"))
+            self.after(0, lambda: self._apply_voice_state(agent_id, enabled))
+        self._run_in_background(background)
+
+    def _apply_voice_state(self, agent_id, enabled):
+        if agent_id != self.selected_agent:
+            return
+        self._voice_enabled = enabled
+        self._sync_voice_button_visual()
+
     def _reset_current_agent(self):
         if not self.selected_agent: return
         agent_id = self.selected_agent
@@ -700,6 +733,8 @@ class HarmonyApp(ctk.CTk):
         for widget in self.log_scroll.winfo_children(): widget.destroy()
         self._prev_step_hash = self._prev_log_hash = None
         self._prev_plan_text = self._prev_status_message = self._prev_agent_status = ""
+        self._voice_enabled = False
+        self._sync_voice_button_visual()
         self._show_or_hide_plan("")
         next_status = self._status_for_agent(self.selected_agent) if self.selected_agent else ""
         self._prev_agent_status = next_status
@@ -891,6 +926,23 @@ class HarmonyApp(ctk.CTk):
             self.reset_memory_button.pack(side="right", padx=(12, 0))
             self._is_reset_visible = True
 
+    def _hide_voice_button(self):
+        if self._is_voice_visible:
+            self.voice_button.pack_forget()
+            self._is_voice_visible = False
+
+    def _show_voice_button(self):
+        if not self._is_voice_visible:
+            self.voice_button.pack(side="left")
+            self._is_voice_visible = True
+
+    def _sync_voice_button_visual(self):
+        self.voice_button.configure(
+            text=f"AirVoice Connector: {'ON' if self._voice_enabled else 'OFF'}",
+            fg_color="transparent",
+            text_color="#4da3ff" if self._voice_enabled else MUTED,
+        )
+
     # ── View refresh ──────────────────────────────────────────────────────────
     def _sync_agent_summary(self):
         if not self.selected_agent:
@@ -912,19 +964,19 @@ class HarmonyApp(ctk.CTk):
             self.empty_state_subtitle.configure(text="Connect an agent to see its screen here")
             self.empty_state_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
             self.empty_state_overlay.lift()
-            self._hide_disconnect_button(); self._hide_reset_button()
+            self._hide_disconnect_button(); self._hide_reset_button(); self._hide_voice_button()
         elif not self._current_screenshot:
             self.screen_meta.configure(text=f"{self.selected_agent} / waiting for screen")
             self.empty_state_title.configure(text="Waiting for screen")
             self.empty_state_subtitle.configure(text="The agent hasn't sent a screenshot yet")
             self.empty_state_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
             self.empty_state_overlay.lift()
-            self._show_disconnect_button(); self._show_reset_button()
+            self._show_disconnect_button(); self._show_reset_button(); self._show_voice_button()
         else:
             status = AGENT_STATUS_LABELS.get(self._prev_agent_status, self._prev_agent_status or "idle")
             self.screen_meta.configure(text=f"{self.selected_agent} / {status}")
             self.empty_state_overlay.place_forget()
-            self._show_disconnect_button(); self._show_reset_button()
+            self._show_disconnect_button(); self._show_reset_button(); self._show_voice_button()
         self._sync_agent_summary()
 
     # ── Polling loops ─────────────────────────────────────────────────────────
@@ -986,6 +1038,9 @@ class HarmonyApp(ctk.CTk):
                 cmd_output     = step_data.get("cmd_output")
                 current_task   = data.get("current_task") or data.get("task") or ""
                 agent_status   = data.get("status", "")
+                voice_enabled  = bool(data.get("voice_enabled"))
+                if voice_enabled != self._voice_enabled:
+                    self.after(0, lambda e=voice_enabled: self._apply_voice_state(agent_id, e))
                 plan_text      = step_data.get("plan", "")
                 status_message = data.get("status_text", "") or ""
 
