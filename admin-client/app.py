@@ -2,6 +2,7 @@ import threading
 import base64
 import hashlib
 import tkinter as tk
+import os
 from io import BytesIO
 from datetime import datetime
 
@@ -28,6 +29,7 @@ AMBER        = "#d6b16a"
 CYAN         = "#a8a8a8"
 
 FONT, FONT_MONO  = "Helvetica Neue", "Menlo"
+WAITING_IMAGE_PATH = os.path.join(os.path.dirname(__file__), "waiting-image.png")
 
 AGENT_STATUS_LABELS = {
     "working": "working", "idle": "idle",
@@ -36,7 +38,6 @@ AGENT_STATUS_LABELS = {
 }
 
 ctk.set_appearance_mode("dark")
-SEND_ICON = "▶"
 AUTH_WINDOW_SIZE = (520, 620)
 TASK_PLACEHOLDER = "What can I do for you?"
 
@@ -209,12 +210,14 @@ class HarmonyApp(ctk.CTk):
         self.current_username     = ""
         self.selected_agent       = None
         self.is_agent_working     = False
+        self.is_task_send_pending = False
         self.is_tasks_panel_open  = False
         self.is_logs_panel_open   = False
 
         self._known_agent_ids     = []
         self._known_agents        = []
         self._current_screenshot  = None
+        self._waiting_screenshot  = None
         self._prev_step_hash      = None
         self._prev_log_hash       = None
         self._prev_plan_text      = ""
@@ -363,6 +366,34 @@ class HarmonyApp(ctk.CTk):
             text_color=MUTED, font=(FONT, 13))
         self.screenshot_label.place(relx=0.5, rely=0.5, anchor="center")
 
+    def _show_waiting_screenshot(self):
+        max_w = max(self.content_area.winfo_width() - 360, 280)
+        max_h = max(self.content_area.winfo_height() - 40, 220)
+        try:
+            image = Image.open(WAITING_IMAGE_PATH).convert("RGBA")
+            scale = min(max_w / image.width, max_h / image.height, 1.0)
+            fw, fh = max(1, int(image.width * scale)), max(1, int(image.height * scale))
+            image = image.resize((fw, fh), Image.LANCZOS)
+            self._waiting_screenshot = ctk.CTkImage(
+                light_image=image, dark_image=image, size=(fw, fh))
+            self.screenshot_label.configure(text="", image=self._waiting_screenshot)
+        except Exception:
+            self._waiting_screenshot = None
+            self.screenshot_label.configure(text=" ", image=None)
+
+    def _load_empty_state_art(self, max_width=460):
+        try:
+            image = Image.open(WAITING_IMAGE_PATH).convert("RGBA")
+            scale = min(max_width / image.width, 1.0)
+            fw, fh = max(1, int(image.width * scale)), max(1, int(image.height * scale))
+            image = image.resize((fw, fh), Image.LANCZOS)
+            self._empty_state_art = ctk.CTkImage(
+                light_image=image, dark_image=image, size=(fw, fh))
+            self.empty_state_art_label.configure(image=self._empty_state_art, text="")
+        except Exception:
+            self._empty_state_art = None
+            self.empty_state_art_label.configure(image=None, text="")
+
     def _build_floating_state_panel(self):
         CARD_W          = 360
         PANEL_BG        = "#282828"
@@ -471,11 +502,13 @@ class HarmonyApp(ctk.CTk):
         return " ".join(parts)
 
     def _build_empty_state(self):
-        self.empty_state_overlay = ctk.CTkFrame(self.screenshot_and_panels, fg_color=BG)
+        self.empty_state_overlay = ctk.CTkFrame(self.screenshot_and_panels, fg_color="transparent")
         ctr = ctk.CTkFrame(self.empty_state_overlay, fg_color="transparent")
         ctr.place(relx=0.5, rely=0.44, anchor="center")
-        ctk.CTkFrame(ctr, fg_color=SOFT, width=64, height=64,
-                     corner_radius=10, border_width=1, border_color=BORDER).pack(pady=(0, 18))
+        self.empty_state_art_label = ctk.CTkLabel(ctr, text="")
+        self.empty_state_art_label.pack(pady=(0, 18))
+        self._empty_state_art = None
+        self._load_empty_state_art()
         self.empty_state_title = ctk.CTkLabel(ctr, text="No agent connected",
                                               font=(FONT, 20, "bold"), text_color=TEXT)
         self.empty_state_title.pack(pady=(0, 6))
@@ -592,41 +625,52 @@ class HarmonyApp(ctk.CTk):
         self.task_input.bind("<Return>", lambda e: self._send_task_or_stop_agent())
         self.task_input.bind("<KeyRelease>", lambda _e: self._sync_send_button_visual())
 
-        tools = ctk.CTkFrame(self.prompt_box, fg_color="transparent")
-        tools.pack(fill="x", padx=16, pady=(16, 0))
+        tools = ctk.CTkFrame(self.prompt_box, fg_color="transparent", height=42)
+        tools.pack(fill="x", padx=16, pady=(12, 0))
+        tools.pack_propagate(False)
 
         left = ctk.CTkFrame(tools, fg_color="transparent")
-        left.pack(side="left")
+        left.place(x=10, rely=0.5, y=0, anchor="w")
 
-        self.voice_button = ctk.CTkButton(left, text="AirVoice Connector: OFF",
-            width=204, height=30, corner_radius=6, fg_color="transparent",
-            hover_color="#282828", text_color=MUTED, font=(FONT, 13, "bold"),
-            border_width=0, border_spacing=0, anchor="w",
-            command=self._toggle_voice_for_current_agent)
-        self.voice_button.pack(side="left")
+        self.voice_group = ctk.CTkFrame(left, fg_color="transparent",
+            corner_radius=16, border_width=0)
+        self.voice_group.pack(side="left")
+        self.voice_inner = ctk.CTkFrame(self.voice_group, fg_color="transparent")
+        self.voice_inner.pack(padx=(0, 0), pady=7)
+        self.voice_icon = ctk.CTkLabel(self.voice_inner, text="✦",
+            font=(FONT, 16, "bold"), text_color="#d8d8d8")
+        self.voice_icon.pack(side="left", padx=(0, 12))
+        self.voice_label = ctk.CTkLabel(self.voice_inner, text="AirVoice",
+            font=(FONT, 13, "bold"), text_color="#d8d8d8")
+        self.voice_label.pack(side="left")
+        self.voice_beta_label = ctk.CTkLabel(self.voice_inner, text=" (Research Preview)",
+            font=(FONT, 13), text_color="#9a9a9a")
+        self.voice_beta_label.pack(side="left")
+        for widget in (self.voice_group, self.voice_inner, self.voice_icon,
+                       self.voice_label, self.voice_beta_label):
+            widget.bind("<Button-1>", lambda _e: self._toggle_voice_for_current_agent())
         self._is_voice_visible = True; self._hide_voice_button()
 
-        right = ctk.CTkFrame(tools, fg_color="transparent"); right.pack(side="right")
+        right = ctk.CTkFrame(tools, fg_color="transparent")
+        right.place(relx=1.0, rely=0.5, x=0, y=0, anchor="e")
 
         self.agent_dropdown = ctk.CTkOptionMenu(right, values=["No agents"],
-            width=132, height=28, corner_radius=8, fg_color="#282828",
+            width=142, height=30, corner_radius=9, fg_color="#282828",
             text_color="#a8a8a8", button_color="#282828", button_hover_color="#343434",
             dropdown_fg_color="#2b2b2b", dropdown_text_color="#f4f4f4",
             font=(FONT, 12, "bold"), command=self._on_agent_selection_changed)
-        self.agent_dropdown.pack(side="left", padx=(0, 10))
+        self.agent_dropdown.pack(side="left", padx=(0, 12))
         self.agent_dropdown.set("No agents")
 
-        self.send_stop_button = tk.Canvas(right, width=36, height=36, bd=0,
+        self.send_stop_button = tk.Canvas(right, width=40, height=40, bd=0,
             highlightthickness=0, bg="#282828", cursor="hand2")
-        self.send_stop_bg   = self.send_stop_button.create_oval(0, 0, 36, 36,
+        self.send_stop_bg   = self.send_stop_button.create_oval(1, 1, 39, 39,
                                                                  fill="#f5f5f5", outline="")
-        # Play triangle needs a smaller font; stop square uses a filled rect so it
-        # looks crisp and stays perfectly centered.
-        self.send_stop_text = self.send_stop_button.create_text(18, 18,
-            text=SEND_ICON, fill="#2b2b2b", font=(FONT, 14, "bold"))
+        self.send_stop_play = self.send_stop_button.create_polygon(
+            15, 13, 15, 27, 28, 20, fill="#2b2b2b", outline="")
         sq = 12
         self.send_stop_square = self.send_stop_button.create_rectangle(
-            18 - sq // 2, 18 - sq // 2, 18 + sq // 2, 18 + sq // 2,
+            20 - sq // 2, 20 - sq // 2, 20 + sq // 2, 20 + sq // 2,
             fill="#2b2b2b", outline="", state="hidden")
 
         def send_enter(_e):
@@ -725,10 +769,7 @@ class HarmonyApp(ctk.CTk):
 
         if self._current_screenshot:
             self._current_screenshot = None
-            self.screenshot_label.configure(text=" ")
-            blank = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
-            self.screenshot_label.configure(
-                image=ctk.CTkImage(light_image=blank, dark_image=blank, size=(1, 1)))
+            self._show_waiting_screenshot()
 
         for widget in self.log_scroll.winfo_children(): widget.destroy()
         self._prev_step_hash = self._prev_log_hash = None
@@ -861,16 +902,17 @@ class HarmonyApp(ctk.CTk):
                "#e8e8e8" if hover else "#f5f5f5"
         self.send_stop_button.itemconfig(self.send_stop_bg, fill=fill)
         if stop_mode:
-            self.send_stop_button.itemconfig(self.send_stop_text, state="hidden")
+            self.send_stop_button.itemconfig(self.send_stop_play, state="hidden")
             self.send_stop_button.itemconfig(self.send_stop_square, state="normal",
                                               fill="#1f1f1f")
         else:
             self.send_stop_button.itemconfig(self.send_stop_square, state="hidden")
             self.send_stop_button.itemconfig(
-                self.send_stop_text, state="normal", text=SEND_ICON,
-                fill="#1f1f1f", font=(FONT, 14, "bold"))
+                self.send_stop_play, state="normal", fill="#1f1f1f")
 
     def _send_task_or_stop_agent(self):
+        if self.is_task_send_pending:
+            return
         task_text = self.task_input.get().strip()
         if not self.selected_agent:
             self.task_input.configure(placeholder_text="Select an agent first")
@@ -890,19 +932,37 @@ class HarmonyApp(ctk.CTk):
             return
 
         agent_id = self.selected_agent
-        self.task_input.delete(0, "end")
-        self._sync_send_button_visual()
+        self.is_task_send_pending = True
+        self.task_input.configure(state="disabled")
         self.task_input.configure(placeholder_text="Sending...")
         self._show_or_hide_plan("")
         self._prev_plan_text = ""
-        self._write_system_log(f"Task dispatched to {agent_id}", CYAN)
 
         def background():
-            request({"action": "send_task", "task": task_text,
-                     "agent_id": agent_id, "user_id": self.user_id})
-            self.after(0, lambda: self.task_input.configure(placeholder_text="Sent!"))
-            self.after(1200, lambda: self.task_input.configure(
-                placeholder_text=TASK_PLACEHOLDER))
+            response = request({"action": "send_task", "task": task_text,
+                                "agent_id": agent_id, "user_id": self.user_id})
+
+            def on_result():
+                self.is_task_send_pending = False
+                self.task_input.configure(state="normal")
+                if response.get("success"):
+                    self.task_input.delete(0, "end")
+                    self.task_input.configure(placeholder_text="Sent!")
+                    self._write_system_log(
+                        response.get("message", f"Task queued for {agent_id}"), CYAN)
+                    self.after(1200, lambda: self.task_input.configure(
+                        placeholder_text=TASK_PLACEHOLDER))
+                    self._sync_send_button_visual()
+                    return
+
+                error_text = response.get("error") or "Failed to send task"
+                self.task_input.configure(placeholder_text="Send failed")
+                self._write_system_log(error_text, RED)
+                self.after(1400, lambda: self.task_input.configure(
+                    placeholder_text=TASK_PLACEHOLDER))
+                self._sync_send_button_visual()
+
+            self.after(0, on_result)
         self._run_in_background(background)
 
     # ── Button visibility ─────────────────────────────────────────────────────
@@ -928,20 +988,24 @@ class HarmonyApp(ctk.CTk):
 
     def _hide_voice_button(self):
         if self._is_voice_visible:
-            self.voice_button.pack_forget()
+            self.voice_group.pack_forget()
             self._is_voice_visible = False
 
     def _show_voice_button(self):
         if not self._is_voice_visible:
-            self.voice_button.pack(side="left")
+            self.voice_group.pack(side="left")
             self._is_voice_visible = True
 
     def _sync_voice_button_visual(self):
-        self.voice_button.configure(
-            text=f"AirVoice Connector: {'ON' if self._voice_enabled else 'OFF'}",
+        is_on = self._voice_enabled
+        self.voice_group.configure(
             fg_color="transparent",
-            text_color="#4da3ff" if self._voice_enabled else MUTED,
+            bg_color="#282828",
+            border_width=0,
         )
+        self.voice_icon.configure(text_color="#8ec5ff" if is_on else "#6b89a7")
+        self.voice_label.configure(text_color="#8ec5ff" if is_on else "#7f97b0")
+        self.voice_beta_label.configure(text_color="#6faee8" if is_on else "#647c95")
 
     # ── View refresh ──────────────────────────────────────────────────────────
     def _sync_agent_summary(self):
@@ -959,6 +1023,7 @@ class HarmonyApp(ctk.CTk):
 
     def _refresh_view_for_current_agent(self):
         if not self.selected_agent:
+            self._show_waiting_screenshot()
             self.screen_meta.configure(text="No active screen")
             self.empty_state_title.configure(text="No agent connected")
             self.empty_state_subtitle.configure(text="Connect an agent to see its screen here")
@@ -966,6 +1031,7 @@ class HarmonyApp(ctk.CTk):
             self.empty_state_overlay.lift()
             self._hide_disconnect_button(); self._hide_reset_button(); self._hide_voice_button()
         elif not self._current_screenshot:
+            self._show_waiting_screenshot()
             self.screen_meta.configure(text=f"{self.selected_agent} / waiting for screen")
             self.empty_state_title.configure(text="Waiting for screen")
             self.empty_state_subtitle.configure(text="The agent hasn't sent a screenshot yet")
