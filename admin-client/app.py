@@ -211,6 +211,7 @@ class HarmonyApp(ctk.CTk):
         self.selected_agent       = None
         self.is_agent_working     = False
         self.is_task_send_pending = False
+        self._selected_connector  = None
         self.is_tasks_panel_open  = False
         self.is_logs_panel_open   = False
 
@@ -632,23 +633,44 @@ class HarmonyApp(ctk.CTk):
         left = ctk.CTkFrame(tools, fg_color="transparent")
         left.place(x=10, rely=0.5, y=0, anchor="w")
 
-        self.voice_group = ctk.CTkFrame(left, fg_color="transparent",
+        self.connector_group = ctk.CTkFrame(left, fg_color="transparent")
+        self.connector_group.pack(side="left")
+        self.connector_label = ctk.CTkLabel(self.connector_group, text="Connector:",
+            font=(FONT, 13, "bold"), text_color="#c7c7c7")
+        self.connector_label.pack(side="left", padx=(0, 10))
+
+        self.connector_picker = ctk.CTkOptionMenu(self.connector_group,
+            values=["None", "AirVoice"], width=114, height=30, corner_radius=9,
+            fg_color="#282828", text_color="#a8a8a8", button_color="#282828",
+            button_hover_color="#343434", dropdown_fg_color="#2b2b2b",
+            dropdown_text_color="#f4f4f4", font=(FONT, 12, "bold"),
+            command=self._on_connector_selection_changed)
+        self.connector_picker.pack(side="left")
+        self.connector_picker.set("None")
+
+        self.voice_group = ctk.CTkFrame(self.connector_group, fg_color="transparent",
             corner_radius=16, border_width=0)
-        self.voice_group.pack(side="left")
         self.voice_inner = ctk.CTkFrame(self.voice_group, fg_color="transparent")
-        self.voice_inner.pack(padx=(0, 0), pady=7)
-        self.voice_icon = ctk.CTkLabel(self.voice_inner, text="✦",
+        self.voice_inner.pack(side="left", pady=7)
+        self.voice_click_area = ctk.CTkFrame(self.voice_inner, fg_color="transparent",
+            cursor="hand2")
+        self.voice_click_area.pack(side="left")
+        self.voice_content = ctk.CTkFrame(self.voice_click_area, fg_color="transparent")
+        self.voice_content.pack(side="left")
+        self.voice_icon = ctk.CTkLabel(self.voice_content, text="✦",
             font=(FONT, 16, "bold"), text_color="#d8d8d8")
         self.voice_icon.pack(side="left", padx=(0, 12))
-        self.voice_label = ctk.CTkLabel(self.voice_inner, text="AirVoice",
+        self.voice_label = ctk.CTkLabel(self.voice_content, text="AirVoice",
             font=(FONT, 13, "bold"), text_color="#d8d8d8")
         self.voice_label.pack(side="left")
-        self.voice_beta_label = ctk.CTkLabel(self.voice_inner, text=" (Research Preview)",
+        self.voice_beta_label = ctk.CTkLabel(self.voice_content, text=" (Research Preview)",
             font=(FONT, 13), text_color="#9a9a9a")
         self.voice_beta_label.pack(side="left")
-        for widget in (self.voice_group, self.voice_inner, self.voice_icon,
+        for widget in (self.voice_group, self.voice_inner, self.voice_click_area,
+                       self.voice_content, self.voice_icon,
                        self.voice_label, self.voice_beta_label):
-            widget.bind("<Button-1>", lambda _e: self._toggle_voice_for_current_agent())
+            widget.bind("<Button-1>", lambda _e: self._remove_voice_connector())
+        self._show_voice_picker()
         self._is_voice_visible = True; self._hide_voice_button()
 
         right = ctk.CTkFrame(tools, fg_color="transparent")
@@ -728,16 +750,13 @@ class HarmonyApp(ctk.CTk):
         self._on_agent_selection_changed(None)
         self._run_in_background(self._fetch_agents_from_server)
 
-    def _toggle_voice_for_current_agent(self):
+    def _enable_voice_for_current_agent(self):
         if not self.selected_agent: return
         agent_id = self.selected_agent
-        turning_on = not self._voice_enabled
-        action = "enable_voice" if turning_on else "disable_voice"
-        self._write_system_log(
-            f"{'Enabling' if turning_on else 'Disabling'} voice for {agent_id}")
+        self._write_system_log(f"Enabling voice for {agent_id}")
 
         def background():
-            response = request({"action": action, "agent_id": agent_id})
+            response = request({"action": "enable_voice", "agent_id": agent_id})
             enabled = bool(response.get("voice_enabled"))
             self.after(0, lambda: self._apply_voice_state(agent_id, enabled))
         self._run_in_background(background)
@@ -746,7 +765,36 @@ class HarmonyApp(ctk.CTk):
         if agent_id != self.selected_agent:
             return
         self._voice_enabled = enabled
+        self._selected_connector = "AirVoice" if enabled else None
         self._sync_voice_button_visual()
+
+    def _on_connector_selection_changed(self, chosen_value):
+        selected = None if chosen_value in (None, "None") else chosen_value
+        if selected == "AirVoice":
+            self._selected_connector = "AirVoice"
+            self._show_voice_chip()
+            self._sync_voice_button_visual()
+            self._enable_voice_for_current_agent()
+        else:
+            self._selected_connector = None
+            if self._voice_enabled:
+                self._remove_voice_connector()
+                return
+            self._show_voice_picker()
+        self._sync_voice_button_visual()
+
+    def _remove_voice_connector(self):
+        if self.selected_agent and self._selected_connector == "AirVoice":
+            agent_id = self.selected_agent
+            self._write_system_log(f"Disabling voice for {agent_id}")
+            def background():
+                request({"action": "disable_voice", "agent_id": agent_id})
+                self.after(0, lambda: self._apply_voice_state(agent_id, False))
+            self._run_in_background(background)
+        else:
+            self._voice_enabled = False
+            self._selected_connector = None
+            self._sync_voice_button_visual()
 
     def _reset_current_agent(self):
         if not self.selected_agent: return
@@ -775,6 +823,8 @@ class HarmonyApp(ctk.CTk):
         self._prev_step_hash = self._prev_log_hash = None
         self._prev_plan_text = self._prev_status_message = self._prev_agent_status = ""
         self._voice_enabled = False
+        self._selected_connector = None
+        self._show_voice_picker()
         self._sync_voice_button_visual()
         self._show_or_hide_plan("")
         next_status = self._status_for_agent(self.selected_agent) if self.selected_agent else ""
@@ -988,24 +1038,37 @@ class HarmonyApp(ctk.CTk):
 
     def _hide_voice_button(self):
         if self._is_voice_visible:
-            self.voice_group.pack_forget()
+            self.connector_group.pack_forget()
             self._is_voice_visible = False
 
     def _show_voice_button(self):
         if not self._is_voice_visible:
-            self.voice_group.pack(side="left")
+            self.connector_group.pack(side="left")
             self._is_voice_visible = True
+
+    def _show_voice_picker(self):
+        self.voice_group.pack_forget()
+        self.connector_picker.pack(side="left")
+        self.connector_picker.set("None")
+
+    def _show_voice_chip(self):
+        self.connector_picker.pack_forget()
+        self.voice_group.pack(side="left")
 
     def _sync_voice_button_visual(self):
         is_on = self._voice_enabled
+        if self._selected_connector == "AirVoice":
+            self._show_voice_chip()
+        else:
+            self._show_voice_picker()
         self.voice_group.configure(
             fg_color="transparent",
             bg_color="#282828",
             border_width=0,
         )
-        self.voice_icon.configure(text_color="#8ec5ff" if is_on else "#6b89a7")
-        self.voice_label.configure(text_color="#8ec5ff" if is_on else "#7f97b0")
-        self.voice_beta_label.configure(text_color="#6faee8" if is_on else "#647c95")
+        self.voice_icon.configure(text_color="#8ec5ff" if is_on else "#9aa6b2")
+        self.voice_label.configure(text_color="#8ec5ff" if is_on else "#c2c8cf")
+        self.voice_beta_label.configure(text_color="#6faee8" if is_on else "#7e8791")
 
     # ── View refresh ──────────────────────────────────────────────────────────
     def _sync_agent_summary(self):
