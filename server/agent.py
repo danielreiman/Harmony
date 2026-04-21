@@ -165,7 +165,15 @@ class Agent:
 
             self.save()
             time.sleep(0.1)
-        return False
+        if self.status == "disconnect_requested":
+            return False
+
+        self.task = None
+        self.task_id = None
+        if self.status != "clear_requested":
+            self.status = "idle"
+        self.save()
+        return True
 
     def save(self):
         try:
