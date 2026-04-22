@@ -810,8 +810,8 @@ def enable(agent_id):
     # Everything else is decided here in code.
     server_host = os.environ.get("AIRVOICE_HOST", "127.0.0.1")
 
-    # The AirVoice login name is just the agent id - one voice bot per agent.
-    user_name = agent_id
+    # The AirVoice login name prefixes the agent id so it's clear it's a bot.
+    user_name = f"Agent {agent_id}"
 
     # Generate a fresh random password for this session. It never leaves
     # memory: no env var, no file, no database. Each call to enable() gets
