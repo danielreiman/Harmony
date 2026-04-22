@@ -151,12 +151,7 @@ def handle_enable_voice(request):
     if db.get_agent(agent_id) is None:
         return {"error": f"Agent {agent_id} not found"}
     try:
-        airvoice.enable(
-            agent_id,
-            host=request.get("host"),
-            username=request.get("username"),
-            password=request.get("password"),
-        )
+        airvoice.enable(agent_id)
         return {"success": True, "voice_enabled": True}
     except Exception as error:
         return {"error": str(error)}

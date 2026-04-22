@@ -7,32 +7,25 @@ import time
 
 
 DATABASE_FILE_PATH = os.path.join(os.path.dirname(__file__), "harmony.db")
-DATABASE_CONNECTION_TIMEOUT_SECONDS = 30
-DATABASE_BUSY_TIMEOUT_MILLISECONDS = 30_000
-
-# SQLite connections are not shared across threads.
-current_thread_database = threading.local()
+_local = threading.local()  # each worker gets its own link to the database
 
 
 def get_connection():
-    existing_connection = getattr(current_thread_database, "connection", None)
-    if existing_connection is not None:
-        return existing_connection
+    # If it already opened the database earlier, use that same one again.
+    if hasattr(_local, "conn"): # Check inside the thread object if there is a conn in it already
+        return _local.conn
 
-    connection = sqlite3.connect(
-        DATABASE_FILE_PATH,
-        timeout=DATABASE_CONNECTION_TIMEOUT_SECONDS,
-        isolation_level=None,
-    )
+    # Open the database file for the first time.
+    conn = sqlite3.connect(DATABASE_FILE_PATH, timeout=30, isolation_level=None)
 
-    connection.execute("PRAGMA journal_mode=WAL")
-    connection.execute(f"PRAGMA busy_timeout={DATABASE_BUSY_TIMEOUT_MILLISECONDS}")
-    connection.execute("PRAGMA synchronous=NORMAL")
-    connection.execute("PRAGMA foreign_keys=ON")
-    connection.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")    # let many threads read and write at once
+    conn.execute("PRAGMA busy_timeout=30000")  # if it's busy, wait up to 30 seconds
+    conn.execute("PRAGMA synchronous=NORMAL")  # faster writes
+    conn.row_factory = sqlite3.Row  # access columns by name (row["id"]) instead of index (row[0])
 
-    current_thread_database.connection = connection
-    return connection
+    # Remember it so it don't open a new one next time.
+    _local.conn = conn
+    return conn
 
 
 def fetch_all_rows(sql, params=()):

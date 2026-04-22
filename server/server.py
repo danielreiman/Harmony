@@ -1,13 +1,12 @@
 import os
 import socket
 import threading
-import uuid
 from config import RUNTIME_DIR
-from helpers import broadcast, local_ip
+from helpers import broadcast, local_ip, pick_agent_name
 from agent import Agent
 from manager import Manager
 from api import run_api
-from database import init_db, register_agent
+from database import init_db, register_agent, get_all_agents
 
 HOST = "0.0.0.0"
 AGENT_PORT = 1222
@@ -59,7 +58,10 @@ def main():
     try:
         while True:
             client_conn, client_addr = server_socket.accept()
-            agent_id = f"agent-{uuid.uuid4().hex[:6]}"
+            with agents_lock:
+                taken = set(agents.keys())
+            taken.update(row["agent_id"] for row in get_all_agents())
+            agent_id = pick_agent_name(taken)
             print(f"[Server] Connected: {agent_id} from {client_addr[0]}")
 
             agent = Agent(id=agent_id, model=AI_MODEL, conn=client_conn)

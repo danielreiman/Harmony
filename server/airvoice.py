@@ -1,265 +1,304 @@
-"""AirVoice connector for Harmony.
-
-Whole workflow:
-1. Log in to the AirVoice server as the Harmony agent.
-2. Accept an incoming call.
-3. Receive voice audio from the call.
-4. Turn the voice audio into text.
-5. If the text says "Harmony" or "Agent", decide what to do.
-6. Send computer tasks to Harmony when needed.
-7. Turn the reply text into voice audio.
-8. Send the voice audio back to the AirVoice call.
-"""
-
-import asyncio
-import importlib
-import json
-import os
-import re
-import socket
-import subprocess
-import tempfile
-import threading
-import time
-import wave
-
-import numpy
-from ollama import Client
-
-import config
-import database as db
-from helpers import extract_json as read_json_object_from_text
+# ============================================================================
+#  AirVoice connector
+# ----------------------------------------------------------------------------
+#  Lets a Harmony agent join an AirVoice group call, listen to what people
+#  say, decide what (if anything) to reply, speak a response out loud, and
+#  optionally dispatch a computer-use task to the Harmony agent server.
+#
+#  Public functions (used by server/api.py):
+#      enable(agent_id, host, username, password, model)  -> start a voice bot
+#      disable(agent_id)                                  -> stop a voice bot
+#      is_enabled(agent_id)                               -> check if running
+#      enabled_ids()                                      -> set of running ids
+# ============================================================================
 
 
-# Network settings.
-AIRVOICE_SERVER_PORT = 1234
-HARMONY_API_HOST = "127.0.0.1"
-HARMONY_API_PORT = 1223
+# ----------------------------------------------------------------------------
+#  Imports
+# ----------------------------------------------------------------------------
+
+import asyncio           # needed to run the text-to-speech coroutine
+import importlib         # lets us load optional voice libraries lazily
+import json              # used to read / write structured messages
+import os                # reads the AirVoice server address from the environment
+import re                # finds wake words and normalises task text
+import secrets           # generates a strong random password per session
+import socket            # opens network connections to the voice server
+import subprocess        # runs ffmpeg to decode the generated speech
+import tempfile          # makes short-lived files for audio conversion
+import threading         # runs the listener and the voice bot in parallel
+import time              # measures delays and rate-limits repeated work
+import wave              # saves microphone audio as a .wav file
+
+import numpy             # stores audio samples as arrays of numbers
+from ollama import Client  # talks to the Ollama AI service
+
+import config            # holds the Ollama API key and other secrets
 
 
-# Model settings.
-DEFAULT_MODEL_NAME = "ministral-3:3b-cloud"
-MODEL_OPTIONS = {
-    "temperature": 0,
-    "num_predict": 80,
-    "num_ctx": 1024,
+# ============================================================================
+#                                 SETTINGS
+# ----------------------------------------------------------------------------
+#  All tunable values live here so nothing is hidden deeper in the file.
+#  Names are written in plain English so non-technical readers can follow.
+# ============================================================================
+
+
+# ---- Where to connect --------------------------------------------------------
+
+VOICE_SERVER_PORT = 1234        # port of the AirVoice call server
+HARMONY_HOST      = "127.0.0.1" # address of our Harmony agent server
+HARMONY_PORT      = 1223        # port of our Harmony agent server
+
+
+# ---- AI model ----------------------------------------------------------------
+
+DEFAULT_AI_MODEL = "ministral-3:3b-cloud"  # the thinking model to use by default
+
+# Options passed to the model whenever we ask it to decide what to say.
+# Low temperature keeps answers stable; small num_predict keeps them short.
+THINKING_SETTINGS = {
+    "temperature": 0,    # no randomness, same input gives same answer
+    "num_predict": 80,   # cap the reply length
+    "num_ctx":     1024, # how much text the model may look at
 }
-SHORT_SPOKEN_LINE_OPTIONS = {
-    "temperature": 0.4,
-    "num_predict": 45,
-    "num_ctx": 512,
-}
-RECAP_SPOKEN_LINE_OPTIONS = {
-    "temperature": 0,
-    "num_predict": 55,
-    "num_ctx": 768,
-}
 
 
-# Call audio settings.
-CALL_AUDIO_SAMPLE_RATE = 16000
-BYTES_PER_AUDIO_SAMPLE = 2
-AUDIO_SAMPLES_PER_PACKET = 320
-AUDIO_PACKET_SECONDS = AUDIO_SAMPLES_PER_PACKET / CALL_AUDIO_SAMPLE_RATE
-SEND_NAME_TO_VOICE_SERVER_EVERY_SECONDS = 5.0
-IGNORE_CALL_AUDIO_AFTER_SPEAKING_SECONDS = 0.8
+# ---- Audio format ------------------------------------------------------------
+
+AUDIO_RATE          = 16000                        # samples per second
+AUDIO_CHUNK_SIZE    = 320                          # samples per network packet
+AUDIO_CHUNK_SECONDS = AUDIO_CHUNK_SIZE / AUDIO_RATE # length of one chunk in seconds
+ID_BROADCAST_EVERY  = 5.0                          # resend our name this often
+ECHO_IGNORE_TIME    = 0.8                          # ignore mic right after we speak
 
 
-# Speech detection settings.
-SILENCE_VOLUME_LEVEL = 400
-SILENCE_SECONDS_THAT_FINISH_SPEECH = 1.0
-MINIMUM_SPEECH_SECONDS = 0.3
+# ---- Listening ---------------------------------------------------------------
+
+QUIET_THRESHOLD     = 400   # volume below this counts as silence
+SILENCE_TO_FINISH   = 1.0   # seconds of silence that end a sentence
+MIN_SPEECH_SECONDS  = 0.3   # anything shorter than this is ignored
 
 
-# Voice command settings.
-WAKE_WORDS = ("harmony", "agent")
-WAKE_WORD_PATTERN = re.compile(r"\b(?:harmony|agent)\b", re.IGNORECASE)
-RECENT_LINES_TO_REMEMBER = 4
-DUPLICATE_TASK_IGNORE_SECONDS = 20
-TEXT_TO_SPEECH_VOICE = "en-US-GuyNeural"
-TEXT_TO_SPEECH_RATE = "+0%"
-TASK_RESULT_CHECK_SECONDS = 1.0
-TASK_RESULT_MAX_WAIT_SECONDS = 300
-TASK_START_WORDS = (
-    "open",
-    "launch",
-    "start",
-    "search",
-    "google",
-    "find",
-    "go to",
-    "visit",
-    "click",
-    "type",
-    "write",
-    "create",
-    "make",
-    "run",
-    "close",
-    "install",
-    "send",
-    "scroll",
-    "organize",
-    "arrange",
-    "clean",
-    "turn",
+# ---- Brain -------------------------------------------------------------------
+
+WAKE_WORDS            = re.compile(r"\b(?:harmony|agent)\b", re.IGNORECASE)  # words that address us
+CONVERSATION_MEMORY   = 4        # how many recent lines we remember
+REPEAT_TASK_COOLDOWN  = 20       # don't resend the same task faster than this
+SPEAKING_VOICE        = "en-US-GuyNeural"  # Edge-TTS voice name
+SPEAKING_SPEED        = "+0%"    # how fast we talk, in percent from normal
+
+
+# ---- Decision prompt ---------------------------------------------------------
+#  This is the system prompt sent to the AI model. It explains the rules of
+#  the conversation and asks for a JSON reply so we can parse it safely.
+
+DECISION_PROMPT = (
+    'You are a voice participant in a group call, joining as "{name}".\n'
+    'You hear meeting audio and may answer with spoken words.\n'
+    '\n'
+    'You may dispatch a task to a Harmony computer-use agent only when someone asks\n'
+    'for real computer work.\n'
+    '\n'
+    'Return one JSON object only:\n'
+    '  {{"say": "<what to speak, or empty string>", "task": "<computer task, or empty string>"}}\n'
+    '\n'
+    'Rules:\n'
+    '- The wake words are "Harmony" and "Agent".\n'
+    '- If the current line contains a wake word and asks to open, search, click,\n'
+    '  type, write, run, install, create, organize, close, or control the computer,\n'
+    '  fill "task".\n'
+    '- If you say you are doing a computer action, "task" must not be empty.\n'
+    '- Reply only when addressed by a wake word or when the request is clearly for the AI.\n'
+    '- Keep "say" under 18 words.\n'
+    '- If dispatching a task, say a short acknowledgement that fits the task.\n'
+    '- Do not say "I\'ll do that" or "I will do that".\n'
+    '- If no reply is needed, return {{"say": "", "task": ""}}.'
 )
 
-HEARD_TASK_START_FIXES = {
-    "opened": "open",
-    "opening": "open",
-    "searched": "search",
-    "searching": "search",
-    "closed": "close",
-    "closing": "close",
-    "organized": "organize",
-    "organised": "organize",
-    "organizing": "organize",
-    "arranged": "arrange",
-    "arranging": "arrange",
-    "cleaned": "clean",
-    "cleaning": "clean",
-}
 
-TASK_REPLY_WORDS = (
-    "opening",
-    "searching",
-    "checking",
-    "closing",
-    "creating",
-    "organizing",
-    "arranging",
-    "cleaning",
-    "starting",
-    "running",
-    "installing",
-    "sending",
-    "typing",
-    "writing",
-    "clicking",
-    "scrolling",
-)
-VOICE_DECISION_PROMPT = """You are a voice participant in a group call, joining as "{name}".
-You hear meeting audio and may answer with spoken words.
-
-You may dispatch a task to a Harmony computer-use agent only when someone asks
-for real computer work.
-
-Return one JSON object only:
-  {{"say": "<what to speak, or empty string>", "task": "<computer task, or empty string>"}}
-
-Rules:
-- The wake words are "Harmony" and "Agent".
-- If the current line contains a wake word and asks to open, search, click,
-  type, write, run, install, create, organize, close, or control the computer,
-  fill "task".
-- If you say you are doing a computer action, "task" must not be empty.
-- Reply only when addressed by a wake word or when the request is clearly for the AI.
-- Keep "say" under 18 words.
-- If dispatching a task, say a short acknowledgement that fits the task.
-- Do not say "I'll do that" or "I will do that".
-- If no reply is needed, return {{"say": "", "task": ""}}."""
+# ============================================================================
+#                              SMALL HELPERS
+# ============================================================================
 
 
-def write_call_audio_to_wave_file(audio_samples, wave_file_path):
-    with wave.open(wave_file_path, "wb") as wave_file:
-        wave_file.setnchannels(1)
-        wave_file.setsampwidth(BYTES_PER_AUDIO_SAMPLE)
-        wave_file.setframerate(CALL_AUDIO_SAMPLE_RATE)
-        wave_file.writeframes(audio_samples.astype(numpy.int16).tobytes())
+def is_addressed(text):
+    # True when the sentence contains one of our wake words ("Harmony" / "Agent").
+    return WAKE_WORDS.search(text) is not None
 
 
-class LocalSpeechTools:
-    """Turns call audio into text and turns reply text into call audio."""
+def fingerprint(text):
+    # Normalise a task string to a stable key so we can spot repeats.
+    # Lowercases the text and keeps only letters and digits.
+    words = re.findall(r"[a-z0-9]+", text.lower())
+    return " ".join(words)
 
-    def __init__(
-        self,
-        text_to_speech_voice=TEXT_TO_SPEECH_VOICE,
-        text_to_speech_rate=TEXT_TO_SPEECH_RATE,
-        speech_to_text_language="en-US",
-    ):
-        speech_recognition = importlib.import_module("speech_recognition")
-        edge_text_to_speech = importlib.import_module("edge_tts")
-        ffmpeg_tools = importlib.import_module("imageio_ffmpeg")
 
-        self.speech_recognition = speech_recognition
-        self.speech_recognizer = speech_recognition.Recognizer()
-        self.speech_recognizer.dynamic_energy_threshold = False
-        self.speech_recognizer.energy_threshold = 250
+def save_wav(audio, path):
+    # Write a mono 16-bit PCM .wav file so speech-recognition can read it.
+    with wave.open(path, "wb") as wav:
+        wav.setnchannels(1)                                 # mono audio
+        wav.setsampwidth(2)                                 # 16 bits per sample
+        wav.setframerate(AUDIO_RATE)                        # samples per second
+        wav.writeframes(audio.astype(numpy.int16).tobytes())  # raw sample bytes
 
-        self.edge_text_to_speech = edge_text_to_speech
-        self.ffmpeg_path = ffmpeg_tools.get_ffmpeg_exe()
-        self.text_to_speech_voice = text_to_speech_voice
-        self.text_to_speech_rate = text_to_speech_rate
-        self.speech_to_text_language = speech_to_text_language
 
-        print("[Airvoice] Speech: SpeechRecognition Google, Edge TTS")
+# ============================================================================
+#                           TASK DISPATCH (to Harmony)
+# ----------------------------------------------------------------------------
+#  Opens a short TCP connection to the Harmony agent server and asks it to
+#  run a natural-language computer task on behalf of this voice bot.
+# ============================================================================
 
-    def turn_heard_audio_into_text(self, audio_samples):
-        if audio_samples.size == 0:
+
+class TaskSender:
+
+    def __init__(self, host=HARMONY_HOST, port=HARMONY_PORT, agent_id=None):
+        self.host     = host       # where the Harmony agent server lives
+        self.port     = port       # which port it listens on
+        self.agent_id = agent_id   # id of the agent that should run the task
+
+    def send(self, task):
+        # Build the request the Harmony server expects.
+        payload = {"action": "send_task", "task": task}
+
+        # Attach the agent id when we know it (the server uses this to route).
+        if self.agent_id:
+            payload["agent_id"] = self.agent_id
+
+        # Serialize to bytes because the protocol is length-prefixed binary.
+        body = json.dumps(payload).encode()
+
+        try:
+            # A single short-lived connection per task keeps things simple.
+            with socket.create_connection((self.host, self.port), timeout=5) as sock:
+
+                # Protocol: 8-byte big-endian length, then the JSON body.
+                sock.sendall(len(body).to_bytes(8, "big") + body)
+
+                # Read the 8-byte length of the reply.
+                header = sock.recv(8)
+                if len(header) < 8:
+                    return False
+
+                # Decode the length and read that many bytes of reply.
+                length = int.from_bytes(header, "big")
+                data = b""
+                while len(data) < length:
+                    chunk = sock.recv(length - len(data))
+                    if not chunk:
+                        break
+                    data += chunk
+
+            # The server replies with JSON including a "success" flag.
+            reply = json.loads(data.decode())
+            return bool(reply.get("success"))
+
+        except (OSError, ValueError):
+            # Network error or malformed reply - treat as "task failed".
+            return False
+
+
+# ============================================================================
+#                         VOICE  (speech <-> text)
+# ----------------------------------------------------------------------------
+#  Uses Google's free speech recogniser for speech-to-text, and Microsoft's
+#  Edge-TTS for text-to-speech. ffmpeg (via imageio-ffmpeg) converts the
+#  mp3 Edge-TTS returns into raw PCM we can send over the call.
+# ============================================================================
+
+
+class Voice:
+
+    def __init__(self, voice_name=SPEAKING_VOICE, speak_rate=SPEAKING_SPEED, lang="en-US"):
+
+        # speech_recognition and edge_tts are optional deps; import lazily
+        # so the module still loads if the user has not installed them yet.
+        sr_module       = importlib.import_module("speech_recognition")
+        edge_tts_module = importlib.import_module("edge_tts")
+        ffmpeg_module   = importlib.import_module("imageio_ffmpeg")
+
+        self.sr       = sr_module           # speech-to-text library
+        self.edge_tts = edge_tts_module     # text-to-speech library
+        self.ffmpeg   = ffmpeg_module.get_ffmpeg_exe()  # path to ffmpeg binary
+
+        # Build the Google recogniser and fix its energy threshold.
+        # A fixed threshold stops it from "auto-adapting" to a silent room.
+        self.recogniser = sr_module.Recognizer()
+        self.recogniser.dynamic_energy_threshold = False
+        self.recogniser.energy_threshold = 250
+
+        # Remember the user-chosen voice / rate / language.
+        self.voice_name = voice_name
+        self.speak_rate = speak_rate
+        self.lang       = lang
+
+        print("[Airvoice] Voice ready (Google STT + Edge TTS)")
+
+    # -- Speech to text --------------------------------------------------------
+
+    def to_text(self, audio):
+        # Nothing to transcribe if we received no samples.
+        if audio.size == 0:
             return ""
 
-        with tempfile.TemporaryDirectory(prefix="airvoice-stt-") as temporary_folder_path:
-            heard_wave_file_path = os.path.join(temporary_folder_path, "heard.wav")
-            write_call_audio_to_wave_file(audio_samples, heard_wave_file_path)
+        # Write the samples to a temp .wav so the recogniser can open it.
+        with tempfile.TemporaryDirectory(prefix="airvoice-stt-") as folder:
+            wav_path = os.path.join(folder, "heard.wav")
+            save_wav(audio, wav_path)
 
             try:
-                with self.speech_recognition.AudioFile(heard_wave_file_path) as audio_file:
-                    recorded_audio = self.speech_recognizer.record(audio_file)
-                return self.recognize_recorded_audio(recorded_audio)
-            except self.speech_recognition.UnknownValueError:
-                return ""
-            except self.speech_recognition.RequestError as error:
-                print(f"[Airvoice] STT error: {error}")
+                # Load the wav and ask Google to transcribe it.
+                with self.sr.AudioFile(wav_path) as source:
+                    recorded = self.recogniser.record(source)
+                return self.recogniser.recognize_google(recorded, language=self.lang).strip()
+
+            except self.sr.UnknownValueError:
+                # Google heard nothing it could turn into words.
                 return ""
             except Exception as error:
+                # Any other failure (network, quota, etc.) we log and skip.
                 print(f"[Airvoice] STT error: {error}")
                 return ""
 
-    def recognize_recorded_audio(self, recorded_audio):
-        return self.speech_recognizer.recognize_google(
-            recorded_audio,
-            language=self.speech_to_text_language,
-        ).strip()
+    # -- Text to speech --------------------------------------------------------
 
-    def turn_text_into_call_audio(self, text_to_say):
-        if not text_to_say:
+    def to_audio(self, text):
+        # Nothing to say -> return an empty sample array.
+        if not text:
             return numpy.zeros(0, dtype=numpy.int16)
 
-        with tempfile.TemporaryDirectory(prefix="airvoice-tts-") as temporary_folder_path:
+        with tempfile.TemporaryDirectory(prefix="airvoice-tts-") as folder:
             try:
-                speech_file_path = os.path.join(temporary_folder_path, "reply.mp3")
-                asyncio.run(self.create_audio_with_edge_tts(text_to_say, speech_file_path))
-                return self.read_generated_audio_file_as_call_audio(speech_file_path)
+                mp3_path = os.path.join(folder, "reply.mp3")
+
+                # Edge-TTS is async-only so we run it inside asyncio.run.
+                asyncio.run(self._write_mp3(text, mp3_path))
+
+                # Convert the mp3 to raw PCM samples matching our call rate.
+                return self._mp3_to_samples(mp3_path)
+
             except Exception as error:
                 print(f"[Airvoice] TTS error: {error}")
                 return numpy.zeros(0, dtype=numpy.int16)
 
-    async def create_audio_with_edge_tts(self, text_to_say, output_audio_file_path):
-        voice = self.text_to_speech_voice or TEXT_TO_SPEECH_VOICE
-        communicator = self.edge_text_to_speech.Communicate(
-            text_to_say,
-            voice,
-            rate=self.text_to_speech_rate,
-        )
-        await communicator.save(output_audio_file_path)
+    async def _write_mp3(self, text, path):
+        # Call Edge-TTS and save the resulting audio to the given path.
+        speaker = self.edge_tts.Communicate(text, self.voice_name, rate=self.speak_rate)
+        await speaker.save(path)
 
-    def read_generated_audio_file_as_call_audio(self, audio_file_path):
+    def _mp3_to_samples(self, path):
+        # Decode the mp3 with ffmpeg to signed 16-bit little-endian mono PCM
+        # at our call sample rate. stdout contains the raw bytes.
         result = subprocess.run(
             [
-                self.ffmpeg_path,
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-i",
-                audio_file_path,
-                "-f",
-                "s16le",
-                "-ac",
-                "1",
-                "-ar",
-                str(CALL_AUDIO_SAMPLE_RATE),
-                "-",
+                self.ffmpeg,
+                "-hide_banner", "-loglevel", "error",
+                "-i", path,
+                "-f", "s16le",              # raw 16-bit samples
+                "-ac", "1",                 # mono
+                "-ar", str(AUDIO_RATE),     # match call rate
+                "-",                        # write to stdout
             ],
             check=True,
             capture_output=True,
@@ -267,807 +306,541 @@ class LocalSpeechTools:
         return numpy.frombuffer(result.stdout, dtype=numpy.int16).copy()
 
 
+def make_voice():
+    # Build a Voice with the defaults defined at the top of this file.
+    return Voice(
+        voice_name = SPEAKING_VOICE,
+        speak_rate = SPEAKING_SPEED,
+        lang       = "en-US",
+    )
 
-class AirvoiceServerConnection:
-    """Handles AirVoice TCP commands and UDP voice packets."""
 
-    def __init__(
-        self,
-        server_host,
-        username,
-        password,
-        when_text_line_arrives,
-        when_audio_samples_arrive,
-    ):
-        self.server_host = server_host
-        self.username = username
-        self.password = password
-        self.when_text_line_arrives = when_text_line_arrives
-        self.when_audio_samples_arrive = when_audio_samples_arrive
+# ============================================================================
+#                      CALL  (network link to the voice server)
+# ----------------------------------------------------------------------------
+#  Two sockets: a TCP command channel for text messages (REGISTER / LOGIN /
+#  INCOMING / ...) and a UDP channel for raw audio packets.
+# ============================================================================
 
-        self.text_socket = None
-        self.voice_socket = None
-        self.voice_port = None
-        self.is_connected = False
 
-    def connect_to_server(self):
-        text_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        text_socket.settimeout(5)
-        text_socket.connect((self.server_host, AIRVOICE_SERVER_PORT))
-        text_socket.settimeout(None)
+class Call:
 
-        self.text_socket = text_socket
+    def __init__(self, server_host, username, password, on_message, on_audio):
+        self.server_host  = server_host   # where the AirVoice server lives
+        self.username     = username      # our display / login name
+        self.password     = password      # our password
+        self.on_message   = on_message    # callback for text lines
+        self.on_audio     = on_audio      # callback for audio chunks
+        self.cmd_socket   = None          # TCP socket for commands
+        self.voice_socket = None          # UDP socket for audio
+        self.voice_port   = None          # server's UDP port for audio
+        self.is_connected = False         # True once TCP is up
+
+    # -- Connection management -------------------------------------------------
+
+    def connect(self):
+        # Build the TCP command socket and connect to the server.
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)                                      # fail fast if unreachable
+        sock.connect((self.server_host, VOICE_SERVER_PORT))
+        sock.settimeout(None)                                   # now block forever on recv
+
+        self.cmd_socket   = sock
         self.is_connected = True
 
-        threading.Thread(
-            target=self.read_text_lines_from_server_forever,
-            daemon=True,
-        ).start()
+        # Read server messages in a background thread so callers are not blocked.
+        threading.Thread(target=self._listen_for_messages, daemon=True).start()
 
-    def send_text_line(self, text_line):
-        if not self.text_socket:
+    def close(self):
+        # Mark disconnected first so the background threads stop looping.
+        self.is_connected = False
+        self._drop_voice_socket()
+
+        # Close the TCP command socket if we still have it.
+        if self.cmd_socket:
+            try:
+                self.cmd_socket.close()
+            except OSError:
+                pass
+            self.cmd_socket = None
+
+    # -- Sending ---------------------------------------------------------------
+
+    def send(self, text):
+        # Send one line of text over the command socket. Lines are \n-terminated.
+        if not self.cmd_socket:
             return
-
         try:
-            self.text_socket.sendall((text_line + "\n").encode())
+            self.cmd_socket.sendall((text + "\n").encode())
         except OSError:
             self.is_connected = False
 
-    def open_voice_stream(self, voice_port):
-        self.close_voice_stream()
-
-        voice_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        voice_socket.bind(("", 0))
-        voice_socket.settimeout(0.5)
-
-        self.voice_socket = voice_socket
-        self.voice_port = voice_port
-
-        self.send_name_to_voice_server()
-        threading.Thread(
-            target=self.read_audio_packets_from_server_forever,
-            args=(voice_socket,),
-            daemon=True,
-        ).start()
-
-    def send_audio_to_call(self, audio_samples):
+    def send_audio(self, audio):
+        # Send one chunk of audio over UDP. No retry, UDP is fire-and-forget.
         if not (self.voice_socket and self.voice_port):
             return
-
         try:
-            self.voice_socket.sendto(
-                audio_samples.tobytes(),
-                (self.server_host, self.voice_port),
-            )
+            self.voice_socket.sendto(audio.tobytes(), (self.server_host, self.voice_port))
         except OSError:
             pass
 
-    def close_connection(self):
-        self.is_connected = False
-        self.close_voice_stream()
+    # -- Voice (UDP) channel ---------------------------------------------------
 
-        if self.text_socket:
+    def open_voice(self, port):
+        # Drop any existing UDP socket so we always start clean.
+        self._drop_voice_socket()
+
+        # Bind to any free local port; the server learns our port from the first packet.
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.bind(("", 0))
+        sock.settimeout(0.5)
+
+        self.voice_socket = sock
+        self.voice_port   = port
+
+        # Announce our name so the server knows who this UDP flow belongs to.
+        self._announce_identity()
+
+        # Start reading audio in the background.
+        threading.Thread(target=self._listen_for_audio, args=(sock,), daemon=True).start()
+
+    def _drop_voice_socket(self):
+        sock = self.voice_socket   # grab current socket (may be None)
+        self.voice_socket = None   # clear first so other threads stop using it
+        self.voice_port   = None
+        if sock:
             try:
-                self.text_socket.close()
+                sock.close()
             except OSError:
                 pass
-            self.text_socket = None
 
-    def send_name_to_voice_server(self):
+    def _announce_identity(self):
+        # Tell the server "my UDP flow is user X" by sending a few ID packets.
         if not (self.voice_socket and self.voice_port):
             return
-
-        name_packet = f"ID:{self.username}".encode()
-        for repeat_number in range(3):
+        packet = f"ID:{self.username}".encode()
+        for _ in range(3):
             try:
-                self.voice_socket.sendto(name_packet, (self.server_host, self.voice_port))
+                self.voice_socket.sendto(packet, (self.server_host, self.voice_port))
             except OSError:
                 return
-            time.sleep(0.01)
+            time.sleep(0.01)   # a small pause between duplicates
 
-    def close_voice_stream(self):
-        voice_socket = self.voice_socket
-        self.voice_socket = None
-        self.voice_port = None
+    # -- Background listeners --------------------------------------------------
 
-        if voice_socket:
-            try:
-                voice_socket.close()
-            except OSError:
-                pass
-
-    def read_text_lines_from_server_forever(self):
-        received_text = ""
-        text_socket = self.text_socket
+    def _listen_for_messages(self):
+        # Read text lines from the TCP command socket and forward to callback.
+        buffer = ""
+        sock   = self.cmd_socket
 
         try:
             while self.is_connected:
-                received_bytes = text_socket.recv(4096)
-                if not received_bytes:
+                data = sock.recv(4096)
+
+                # Empty read means the server closed the connection.
+                if not data:
                     break
 
-                received_text += received_bytes.decode(errors="replace")
-                while "\n" in received_text:
-                    text_line, received_text = received_text.split("\n", 1)
-                    text_line = text_line.strip()
-                    if text_line:
-                        self.when_text_line_arrives(text_line)
+                buffer += data.decode(errors="replace")
+
+                # Process every complete \n-terminated line in the buffer.
+                while "\n" in buffer:
+                    line, buffer = buffer.split("\n", 1)
+                    line = line.strip()
+                    if line:
+                        self.on_message(line)
+
         except OSError:
             pass
         finally:
             self.is_connected = False
 
-    def read_audio_packets_from_server_forever(self, voice_socket):
-        last_name_send_time = time.monotonic()
+    def _listen_for_audio(self, sock):
+        # Read UDP audio packets. Re-announce our name periodically so the
+        # server keeps associating this flow with the right user.
+        last_ping = time.monotonic()
 
-        while self.voice_socket is voice_socket:
+        while self.voice_socket is sock:
             try:
-                audio_bytes = voice_socket.recvfrom(65535)[0]
+                raw = sock.recvfrom(65535)[0]
             except socket.timeout:
-                seconds_since_last_name_send = time.monotonic() - last_name_send_time
-                if seconds_since_last_name_send > SEND_NAME_TO_VOICE_SERVER_EVERY_SECONDS:
-                    self.send_name_to_voice_server()
-                    last_name_send_time = time.monotonic()
+                # No packets recently - keep the server aware we're still here.
+                if time.monotonic() - last_ping > ID_BROADCAST_EVERY:
+                    self._announce_identity()
+                    last_ping = time.monotonic()
                 continue
             except OSError:
                 break
 
-            if len(audio_bytes) < 2 or len(audio_bytes) % 2 != 0:
+            # Ignore obviously malformed packets (odd byte count etc.).
+            if len(raw) < 2 or len(raw) % 2 != 0:
                 continue
 
-            audio_samples = numpy.frombuffer(audio_bytes, dtype=numpy.int16).copy()
-            self.when_audio_samples_arrive(audio_samples)
+            # Convert the packet bytes into a numpy int16 sample array.
+            samples = numpy.frombuffer(raw, dtype=numpy.int16).copy()
+            self.on_audio(samples)
 
 
-
-class HarmonyTaskSender:
-    """Sends a computer task to the Harmony server."""
-
-    def __init__(self, api_host=HARMONY_API_HOST, api_port=HARMONY_API_PORT, agent_id=None):
-        self.api_host = api_host
-        self.api_port = api_port
-        self.agent_id = agent_id
-
-    def send_task_to_harmony(self, task_text):
-        request_data = {"action": "send_task", "task": task_text}
-        if self.agent_id:
-            request_data["agent_id"] = self.agent_id
-
-        request_bytes = json.dumps(request_data).encode()
-
-        try:
-            with socket.create_connection((self.api_host, self.api_port), timeout=5) as api_socket:
-                api_socket.sendall(len(request_bytes).to_bytes(8, "big") + request_bytes)
-
-                response_header = api_socket.recv(8)
-                if len(response_header) < 8:
-                    return False
-
-                response_length = int.from_bytes(response_header, "big")
-                response_bytes = b""
-
-                while len(response_bytes) < response_length:
-                    next_chunk = api_socket.recv(response_length - len(response_bytes))
-                    if not next_chunk:
-                        break
-                    response_bytes += next_chunk
-
-            response_data = json.loads(response_bytes.decode())
-            return bool(response_data.get("success"))
-        except (OSError, ValueError):
-            return False
+# ============================================================================
+#                        EAR  (sentence-finishing buffer)
+# ----------------------------------------------------------------------------
+#  Collects incoming audio chunks until the speaker pauses long enough for
+#  us to treat what was said as one complete sentence.
+# ============================================================================
 
 
-
-class FinishedSpeechBuffer:
-    """Collects audio until a person has finished one sentence or command."""
+class Ear:
 
     def __init__(self):
-        self.audio_parts = []
-        self.speech_sample_count = 0
-        self.silence_sample_count = 0
+        self.chunks       = []   # audio pieces received so far
+        self.speech_count = 0    # total samples that sounded like speech
+        self.quiet_count  = 0    # trailing samples that sounded like silence
 
-    def add_audio_from_call(self, audio_samples):
-        audio_volume = 0.0
-        if audio_samples.size:
-            audio_volume = float(numpy.sqrt(numpy.mean(audio_samples.astype(numpy.float32) ** 2)))
-
-        self.audio_parts.append(audio_samples)
-
-        if audio_volume >= SILENCE_VOLUME_LEVEL:
-            self.speech_sample_count += audio_samples.size
-            self.silence_sample_count = 0
+    def add(self, audio):
+        # Root-mean-square of the samples gives a rough volume measurement.
+        if audio.size:
+            rms = float(numpy.sqrt(numpy.mean(audio.astype(numpy.float32) ** 2)))
         else:
-            self.silence_sample_count += audio_samples.size
+            rms = 0.0
 
-    def has_finished_speech(self):
-        has_enough_voice = self.speech_sample_count >= MINIMUM_SPEECH_SECONDS * CALL_AUDIO_SAMPLE_RATE
-        has_enough_silence = self.silence_sample_count >= SILENCE_SECONDS_THAT_FINISH_SPEECH * CALL_AUDIO_SAMPLE_RATE
-        return has_enough_voice and has_enough_silence
+        # Always keep the chunk so we can replay the whole sentence later.
+        self.chunks.append(audio)
 
-    def take_finished_speech(self):
-        if self.audio_parts:
-            audio_samples = numpy.concatenate(self.audio_parts)
+        if rms >= QUIET_THRESHOLD:
+            # Loud enough to count as speech - reset the trailing-silence counter.
+            self.speech_count += audio.size
+            self.quiet_count   = 0
         else:
-            audio_samples = numpy.zeros(0, dtype=numpy.int16)
+            # Silence - extend the trailing-silence counter.
+            self.quiet_count += audio.size
 
-        self.audio_parts = []
-        self.speech_sample_count = 0
-        self.silence_sample_count = 0
+    def ready(self):
+        # A sentence is ready once we have enough speech followed by enough silence.
+        enough_speech  = self.speech_count >= MIN_SPEECH_SECONDS * AUDIO_RATE
+        enough_silence = self.quiet_count  >= SILENCE_TO_FINISH  * AUDIO_RATE
+        return enough_speech and enough_silence
 
-        return audio_samples
+    def take(self):
+        # Return the full sentence as one array and reset the buffer.
+        if self.chunks:
+            audio = numpy.concatenate(self.chunks)
+        else:
+            audio = numpy.zeros(0, dtype=numpy.int16)
 
-
-
-def text_has_wake_word(text):
-    return WAKE_WORD_PATTERN.search(text) is not None
-
-
-def task_text_after_wake_word(text):
-    wake_word_matches = list(WAKE_WORD_PATTERN.finditer(text))
-
-    for wake_word_match in reversed(wake_word_matches):
-        possible_task_text = fix_heard_task_start(text[wake_word_match.end():].strip(" ,:.-"))
-        possible_task_lower_text = possible_task_text.lower()
-
-        for task_start_word in TASK_START_WORDS:
-            is_exact_task_start = possible_task_lower_text == task_start_word
-            starts_with_task_start = possible_task_lower_text.startswith(task_start_word + " ")
-            if is_exact_task_start or starts_with_task_start:
-                return possible_task_text
-
-    return ""
+        self.chunks       = []
+        self.speech_count = 0
+        self.quiet_count  = 0
+        return audio
 
 
-def fix_heard_task_start(text):
-    words = text.strip().split(maxsplit=1)
-    if not words:
-        return ""
-
-    first_word = words[0].lower().strip(" ,:.-")
-    better_first_word = HEARD_TASK_START_FIXES.get(first_word)
-    if not better_first_word:
-        return text.strip()
-
-    if len(words) == 1:
-        return better_first_word
-
-    return f"{better_first_word} {words[1].strip()}"
+# ============================================================================
+#                      BRAIN  (the voice bot for one agent)
+# ----------------------------------------------------------------------------
+#  Ties everything together: joins a call, listens, asks the AI what to do,
+#  optionally dispatches a Harmony task, and speaks the reply.
+# ============================================================================
 
 
-def has_request_besides_wake_word(text):
-    text_without_wake_words = WAKE_WORD_PATTERN.sub(" ", text)
-    useful_words = [
-        word
-        for word in re.findall(r"[a-z0-9]+", text_without_wake_words.lower())
-        if word not in {"hey", "hi", "hello", "please", "ok", "okay"}
-    ]
-    return len(useful_words) > 0
+class Brain:
 
+    def __init__(self, server_host, username, password, model, agent_id=None):
+        self.server_host = server_host          # AirVoice server address
+        self.username    = username             # our login name
+        self.password    = password             # our password
+        self.model       = model                # AI model name
+        self.agent_id    = agent_id             # which Harmony agent runs tasks
+        self.prompt      = DECISION_PROMPT.format(name=username)
 
-def task_key(text):
-    return " ".join(re.findall(r"[a-z0-9]+", text.lower()))
+        # Conversation state.
+        self.meeting_log = []    # recent sentences for context
+        self.in_call     = False # True once we are inside an active call
+        self.speaking    = False # True while we are playing our own voice
+        self.quiet_until = 0.0   # ignore mic until monotonic time reaches this
+        self.last_key    = ""    # fingerprint of last task we dispatched
+        self.last_sent   = 0.0   # when we dispatched the last task
 
+        # Concurrency guards so the mic and the AI do not race each other.
+        self.ear        = Ear()
+        self.ear_lock   = threading.Lock()
+        self.mouth_lock = threading.Lock()
 
-def text_sounds_like_task_reply_without_task(text):
-    clean_text = text.lower().strip()
-    return any(clean_text.startswith(word) for word in TASK_REPLY_WORDS)
-
-
-def load_speech_tools_from_computer():
-    return LocalSpeechTools(
-        text_to_speech_voice=os.environ.get("AIRVOICE_TTS_VOICE", TEXT_TO_SPEECH_VOICE),
-        text_to_speech_rate=os.environ.get("AIRVOICE_TTS_RATE", TEXT_TO_SPEECH_RATE),
-        speech_to_text_language=os.environ.get("AIRVOICE_STT_LANGUAGE", "en-US"),
-    )
-
-
-
-class AirvoiceAgentBrain:
-    """Owns the full AirVoice agent workflow."""
-
-    def __init__(self, server_host, username, password, model_name, agent_id=None):
-        self.server_host = server_host
-        self.username = username
-        self.password = password
-        self.model_name = model_name
-        self.agent_id = agent_id
-        self.system_prompt = VOICE_DECISION_PROMPT.format(name=username)
-
-        self.recent_heard_lines = []
-        self.is_inside_call = False
-        self.is_speaking_now = False
-        self.ignore_call_audio_until = 0.0
-        self.last_sent_task_key = ""
-        self.last_sent_task_time = 0.0
-        self.finished_speech_buffer = FinishedSpeechBuffer()
-        self.audio_lock = threading.Lock()
-        self.speak_lock = threading.Lock()
-
-        ollama_api_key = config.OLLAMA_API_KEY
-        if not ollama_api_key:
+        # Ollama requires an API key which we load from the shared config.
+        api_key = config.OLLAMA_API_KEY
+        if not api_key:
             raise RuntimeError("OLLAMA_API_KEY not found")
 
-        self.ollama_client = Client(
+        # Build the AI client, the voice system, the task sender, the call link.
+        self.ai    = Client(
             host="https://ollama.com",
-            headers={"Authorization": f"Bearer {ollama_api_key}"},
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+        self.voice = make_voice()
+        self.tasks = TaskSender(agent_id=agent_id)
+        self.call  = Call(
+            server_host, username, password,
+            on_message = lambda line:  self.hear(text_line=line),
+            on_audio   = lambda audio: self.hear(audio=audio),
         )
 
-        self.speech_tools = load_speech_tools_from_computer()
-        self.task_sender = HarmonyTaskSender(agent_id=agent_id)
-        self.airvoice_connection = AirvoiceServerConnection(
-            server_host,
-            username,
-            password,
-            when_text_line_arrives=self.handle_text_line_from_airvoice_server,
-            when_audio_samples_arrive=self.handle_audio_samples_from_airvoice_call,
-        )
+    # -- Lifecycle -------------------------------------------------------------
 
-    def run(self):
+    def activate(self):
+        # Connect to the server, register, log in, then idle while the
+        # background threads handle messages and audio.
         try:
-            self.airvoice_connection.connect_to_server()
+            self.call.connect()
         except OSError as error:
-            print(f"[Airvoice] Cannot reach {self.server_host}:{AIRVOICE_SERVER_PORT}: {error}")
-            remove_brain_from_active_list(self.agent_id)
+            print(f"[Airvoice] Cannot connect: {error}")
             return
 
-        self.airvoice_connection.send_text_line(f"REGISTER {self.username} {self.password}")
-        self.airvoice_connection.send_text_line(f"LOGIN {self.username} {self.password}")
-        print(f"[Airvoice] Connected to {self.server_host} as {self.username}")
+        self.call.send(f"REGISTER {self.username} {self.password}")
+        self.call.send(f"LOGIN {self.username} {self.password}")
 
         try:
-            while self.airvoice_connection.is_connected:
-                time.sleep(0.2)
-                self.listen_for_finished_speech()
-        except Exception as error:
-            print(f"[Airvoice] Error: {error}")
+            while self.call.is_connected:
+                time.sleep(0.2)  # don't busy-loop
+                self.hear()      # check if a sentence is ready
         finally:
-            self.airvoice_connection.close_connection()
-            remove_brain_from_active_list(self.agent_id)
+            self.call.close()
 
     def stop(self):
-        self.airvoice_connection.send_text_line("QUIT")
-        self.airvoice_connection.close_connection()
+        # Politely leave the call, then tear down the sockets.
+        self.call.send("QUIT")
+        self.call.close()
 
-    def handle_text_line_from_airvoice_server(self, text_line):
-        text_parts = text_line.split()
-        server_command = text_parts[0].upper() if text_parts else ""
-        command_words = text_parts[1:]
+    # -- Input handling --------------------------------------------------------
 
-        if server_command == "OK":
-            print(f"[Airvoice] Logged in as {self.username}")
+    def hear(self, text_line=None, audio=None):
+        # Case A: a text message arrived from the server.
+        if text_line is not None:
+            self._handle_server_message(text_line)
             return
 
-        if server_command == "ERR":
-            print(f"[Airvoice] Server: ERR {' '.join(command_words)}")
+        # Case B: an audio chunk arrived from the server.
+        if audio is not None:
+            self._handle_audio_chunk(audio)
             return
 
-        if server_command == "INCOMING" and command_words:
-            caller_name = command_words[0]
-            self.airvoice_connection.send_text_line(f"ACCEPT {caller_name}")
+        # Case C: periodic tick - check whether a full sentence is ready.
+        with self.ear_lock:
+            if not self.ear.ready():
+                return
+            audio = self.ear.take()
+
+        # Turn the captured sentence into text.
+        heard = self.voice.to_text(audio).strip()
+        if not heard:
             return
 
-        if server_command == "CALL_START" and command_words:
+        # Only react when a wake word is spoken.
+        if is_addressed(heard):
+            self.think(heard)
+
+    def _handle_server_message(self, line):
+        # Split the server line into a command and arguments.
+        parts   = line.split()
+        command = parts[0].upper() if parts else ""
+        args    = parts[1:]
+
+        if command == "INCOMING" and args:
+            # Someone is calling us - accept immediately.
+            self.call.send(f"ACCEPT {args[0]}")
+
+        elif command == "CALL_START" and args:
+            # Server tells us which UDP port to use for audio.
             try:
-                self.airvoice_connection.open_voice_stream(int(command_words[0]))
+                self.call.open_voice(int(args[0]))
             except ValueError:
                 pass
+
+        elif command == "PARTICIPANTS":
+            # We are now officially in the call.
+            self.in_call = True
+
+        elif command in ("CALL_ENDED", "HANGUP_OK"):
+            # Call is over - reset everything.
+            self.in_call = False
+            with self.ear_lock:
+                self.ear = Ear()
+
+    def _handle_audio_chunk(self, audio):
+        # Only listen when we're in a call, not speaking, and past the echo window.
+        if not self.in_call:
+            return
+        if self.speaking:
+            return
+        if time.monotonic() < self.quiet_until:
             return
 
-        if server_command == "PARTICIPANTS":
-            self.is_inside_call = True
-            print(f"[Airvoice] In call with: {' '.join(command_words)}")
-            return
+        with self.ear_lock:
+            self.ear.add(audio)
 
-        if server_command in ("CALL_ENDED", "HANGUP_OK"):
-            self.is_inside_call = False
-            with self.audio_lock:
-                self.finished_speech_buffer = FinishedSpeechBuffer()
+    # -- Thinking / acting -----------------------------------------------------
 
-    def handle_audio_samples_from_airvoice_call(self, audio_samples):
-        if not self.is_inside_call:
-            return
+    def think(self, heard):
+        # Remember this line, capped at the last CONVERSATION_MEMORY entries.
+        self.meeting_log = (self.meeting_log + [heard])[-CONVERSATION_MEMORY:]
 
-        if self.is_speaking_now:
-            return
+        # Build a short transcript for context.
+        context = "\n".join(f"- {line}" for line in self.meeting_log)
 
-        if time.monotonic() < self.ignore_call_audio_until:
-            return
-
-        with self.audio_lock:
-            self.finished_speech_buffer.add_audio_from_call(audio_samples)
-
-    def listen_for_finished_speech(self):
-        with self.audio_lock:
-            if not self.finished_speech_buffer.has_finished_speech():
-                return
-            audio_samples = self.finished_speech_buffer.take_finished_speech()
-
-        heard_text = self.speech_tools.turn_heard_audio_into_text(audio_samples).strip()
-        if not heard_text:
-            return
-
-        print(f"[Airvoice] Heard: {heard_text!r}")
-
-        if not text_has_wake_word(heard_text):
-            return
-
-        self.answer_heard_text(heard_text)
-
-    def answer_heard_text(self, heard_text):
-        self.recent_heard_lines = (self.recent_heard_lines + [heard_text])[-RECENT_LINES_TO_REMEMBER:]
-
-        direct_task_text = task_text_after_wake_word(heard_text)
-        if direct_task_text:
-            print(f"[Airvoice] Fast command: {direct_task_text!r}")
-            if self.should_ignore_repeated_task(direct_task_text):
-                print(f"[Airvoice] Ignored repeated task: {direct_task_text}")
-                return
-
-            did_send_task = self.task_sender.send_task_to_harmony(direct_task_text)
-            print(f"[Airvoice] Task {'sent' if did_send_task else 'failed'}: {direct_task_text}")
-            if did_send_task:
-                self.remember_sent_task(direct_task_text)
-                self.start_task_result_recap(direct_task_text)
-                clean_task_text = self.clean_recap_sentence(direct_task_text).rstrip(".")
-                if clean_task_text:
-                    self.speak_text_to_airvoice_call(f"Starting {clean_task_text}.")
-            else:
-                self.speak_text_to_airvoice_call("I could not send that to the agent.")
-            return
-
-        if not has_request_besides_wake_word(heard_text):
-            print("[Airvoice] Ignored bare wake word")
-            return
-
-        print(f"[Airvoice] Thinking ({self.model_name})...")
-        decision = self.ask_model_what_to_say_or_do(heard_text)
-        if not decision:
-            return
-
-        text_to_say = str(decision.get("say", "")).strip()
-        task_text = str(decision.get("task", "")).strip()
-
-        print(f"[Airvoice] Decision: say={text_to_say!r}, task={task_text!r}")
-
-        if task_text:
-            if self.should_ignore_repeated_task(task_text):
-                print(f"[Airvoice] Ignored repeated task: {task_text}")
-                return
-            else:
-                did_send_task = self.task_sender.send_task_to_harmony(task_text)
-                print(f"[Airvoice] Task {'sent' if did_send_task else 'failed'}: {task_text}")
-                if did_send_task:
-                    self.remember_sent_task(task_text)
-                    self.start_task_result_recap(task_text)
-                else:
-                    text_to_say = text_to_say or "I could not send that to the agent."
-
-        if not task_text and text_sounds_like_task_reply_without_task(text_to_say):
-            print("[Airvoice] Ignored action reply without task")
-            return
-
-        if text_to_say:
-            self.speak_text_to_airvoice_call(text_to_say)
-
-    def should_ignore_repeated_task(self, task_text):
-        current_task_key = task_key(task_text)
-        if not current_task_key:
-            return False
-
-        seconds_since_last_task = time.monotonic() - self.last_sent_task_time
-        return (
-            current_task_key == self.last_sent_task_key
-            and seconds_since_last_task < DUPLICATE_TASK_IGNORE_SECONDS
+        # Ask the AI what to say and what (if any) task to dispatch.
+        reply = self._ask_ai(
+            [
+                {"role": "system", "content": self.prompt},
+                {"role": "user",   "content": f"Recent lines:\n{context}\n\nNow: {heard}\nDecide."},
+            ],
+            THINKING_SETTINGS,
+            "AI error",
         )
-
-    def remember_sent_task(self, task_text):
-        self.last_sent_task_key = task_key(task_text)
-        self.last_sent_task_time = time.monotonic()
-
-    def ask_model_what_to_say_or_do(self, heard_text):
-        recent_lines_text = "\n".join(f"- {line}" for line in self.recent_heard_lines)
-        user_prompt = (
-            "Recent meeting lines:\n"
-            f"{recent_lines_text}\n\n"
-            f"Current line: {heard_text}\n"
-            "Decide what to say now."
-        )
-
-        try:
-            response = self.ollama_client.chat(
-                model=self.model_name,
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                format="json",
-                options=MODEL_OPTIONS,
-            )
-        except Exception as error:
-            print(f"[Airvoice] AI error: {error}")
-            return {}
-
-        raw_model_text = (response.get("message", {}).get("content") or "").strip()
-
-        return read_json_object_from_text(raw_model_text) or {}
-
-    def start_task_result_recap(self, task_text):
-        task_queued_time = time.time()
-        threading.Thread(
-            target=self.wait_for_task_result_and_speak_recap,
-            args=(task_text, task_queued_time),
-            daemon=True,
-        ).start()
-
-    def wait_for_task_result_and_speak_recap(self, task_text, task_queued_time):
-        if not self.agent_id:
+        if not reply:
             return
 
-        stop_waiting_time = time.monotonic() + TASK_RESULT_MAX_WAIT_SECONDS
-        saw_agent_working_on_task = False
-        last_agent_row = None
+        # Pull the two expected fields out of the JSON reply.
+        to_say  = str(reply.get("say",  "")).strip()
+        to_do   = str(reply.get("task", "")).strip()
 
-        while time.monotonic() < stop_waiting_time and self.airvoice_connection.is_connected:
-            agent_row = db.get_agent(self.agent_id)
-            if not agent_row:
-                break
-
-            last_agent_row = agent_row
-            agent_task = (agent_row.get("task") or "").strip()
-            agent_status = (agent_row.get("status") or "").strip()
-            agent_updated_time = float(agent_row.get("updated_at") or 0)
-
-            if agent_task == task_text and agent_status == "working":
-                saw_agent_working_on_task = True
-
-            if agent_task == task_text and agent_status == "idle" and agent_updated_time >= task_queued_time:
-                recap_text = self.build_task_result_recap(task_text, agent_row)
-                self.speak_recap_if_still_in_call(recap_text)
+        # Dispatch the task, but suppress duplicates fired in quick succession.
+        if to_do:
+            is_repeat   = fingerprint(to_do) == self.last_key
+            fresh_fire  = time.monotonic() - self.last_sent < REPEAT_TASK_COOLDOWN
+            if is_repeat and fresh_fire:
                 return
 
-            if saw_agent_working_on_task and agent_status != "working":
-                recap_text = self.build_task_result_recap(task_text, agent_row)
-                self.speak_recap_if_still_in_call(recap_text)
-                return
+            if self.tasks.send(to_do):
+                self.last_key  = fingerprint(to_do)
+                self.last_sent = time.monotonic()
 
-            time.sleep(TASK_RESULT_CHECK_SECONDS)
+        # Speak the spoken reply (if any).
+        if to_say:
+            self.talk(to_say)
 
-        if saw_agent_working_on_task and last_agent_row:
-            recap_text = self.build_task_result_recap(task_text, last_agent_row)
-            self.speak_recap_if_still_in_call(recap_text)
-
-    def build_task_result_recap(self, task_text, agent_row):
-        agent_status = (agent_row.get("status") or "").strip()
-        status_text = (agent_row.get("status_text") or "").strip()
-
-        if agent_status == "disconnected":
-            return self.create_task_problem_recap(
-                task_text,
-                "the agent disconnected before finishing",
-            )
-
-        if status_text.startswith("AI error"):
-            return self.create_task_problem_recap(
-                task_text,
-                "the AI call failed before finishing",
-            )
-
-        step = {}
-        if agent_row.get("step_json"):
-            try:
-                step = json.loads(agent_row["step_json"])
-            except (TypeError, ValueError):
-                step = {}
-
-        recap_text = self.create_task_result_recap_with_model(task_text, agent_status, status_text, step)
-        if recap_text:
-            return recap_text
-
-        return "The task ended, but I do not have details."
-
-    def create_task_result_recap_with_model(self, task_text, agent_status, status_text, step):
-        status_short = self.clean_recap_note(step.get("status_short") or status_text)
-        reasoning_note = self.clean_recap_note(step.get("reasoning") or "", max_chars=260)
-        action = self.clean_recap_note(step.get("action") or "")
-        value = self.clean_recap_note(step.get("value") or "")
-        command_output = self.clean_recap_note(step.get("cmd_output") or "")
-
-        has_grounding = any([reasoning_note, status_short, action, value, command_output, status_text])
-        if not has_grounding:
-            return "The task ended, but I do not have details."
-
-        prompt = (
-            "Write one short spoken recap for a call after a computer task.\n"
-            "Sound like a helpful colleague, not a report.\n"
-            "Do not say 'quick update'. Do not say 'I finished that'.\n"
-            "Base the recap on Last reasoning first.\n"
-            "Use status, action, value, and command output only to clarify the reasoning.\n"
-            "Do not invent facts, apps, files, websites, results, or success.\n"
-            "Do not claim success unless the facts below say it succeeded.\n"
-            "Do not quote the reasoning word for word.\n"
-            "Use 6 to 14 words. Return JSON only: {\"say\": \"...\"}\n\n"
-            f"Requested task: {task_text}\n"
-            f"Agent status: {agent_status}\n"
-            f"Status text: {status_text}\n"
-            f"Last short status: {status_short}\n"
-            f"Last reasoning: {reasoning_note}\n"
-            f"Last action: {action}\n"
-            f"Last value: {value}\n"
-            f"Command output if any: {command_output}"
-        )
-        return self.ask_model_for_short_spoken_line(
-            prompt,
-            default_text="The task ended, but I do not have details.",
-            model_options=RECAP_SPOKEN_LINE_OPTIONS,
-        )
-
-    def create_task_problem_recap(self, task_text, problem_text):
-        prompt = (
-            "Write one short spoken line for a call about a computer task that did not finish.\n"
-            "Sound natural and direct.\n"
-            "Do not say 'quick update'. Do not say 'I finished that'.\n"
-            "Use 6 to 12 words. Return JSON only: {\"say\": \"...\"}\n\n"
-            f"Requested task: {task_text}\n"
-            f"Problem: {problem_text}"
-        )
-        return self.ask_model_for_short_spoken_line(
-            prompt,
-            default_text=f"I could not finish it because {problem_text}.",
-        )
-
-    def ask_model_for_short_spoken_line(self, prompt, default_text="", model_options=None):
-        try:
-            response = self.ollama_client.chat(
-                model=self.model_name,
-                messages=[
-                    {"role": "system", "content": "You write short natural voice-call lines."},
-                    {"role": "user", "content": prompt},
-                ],
-                format="json",
-                options=model_options or SHORT_SPOKEN_LINE_OPTIONS,
-            )
-        except Exception as error:
-            print(f"[Airvoice] Spoken line AI error: {error}")
-            return default_text
-
-        raw_model_text = (response.get("message", {}).get("content") or "").strip()
-        spoken_line = read_json_object_from_text(raw_model_text) or {}
-        return self.clean_spoken_line(spoken_line.get("say") or default_text)
-
-    def clean_spoken_line(self, text):
-        clean_text = " ".join(str(text).split()).strip(" \"'")
-        if not clean_text:
-            return ""
-
-        generic_starts = (
-            "quick update:",
-            "quick update,",
-            "quick update -",
-            "i finished that:",
-            "i finished that,",
-            "i finished that -",
-            "i'll do that.",
-            "i will do that.",
-        )
-        lower_clean_text = clean_text.lower()
-
-        for generic_start in generic_starts:
-            if lower_clean_text.startswith(generic_start):
-                clean_text = clean_text[len(generic_start):].strip()
-                lower_clean_text = clean_text.lower()
-
-        clean_text = clean_text[:160].rstrip(" ,;:")
-        if clean_text and clean_text[-1] not in ".!?":
-            clean_text += "."
-        return clean_text
-
-    def clean_recap_note(self, text, max_chars=120):
-        return " ".join(str(text).split())[:max_chars]
-
-    def clean_recap_sentence(self, text):
-        clean_text = " ".join(str(text).split())
-        if not clean_text:
-            return ""
-
-        clean_text = clean_text[:220].rstrip(" ,;:")
-        if clean_text[-1] not in ".!?":
-            clean_text += "."
-        return clean_text
-
-    def speak_recap_if_still_in_call(self, recap_text):
-        if not recap_text:
+    def talk(self, text):
+        # Speak some text back into the call.
+        if not text:
             return
 
-        if not self.is_inside_call or not self.airvoice_connection.is_connected:
-            return
+        with self.mouth_lock:
+            # Flip the "we are speaking" flag so we ignore our own echo.
+            self.speaking = True
 
-        self.speak_text_to_airvoice_call(recap_text)
-
-    def speak_text_to_airvoice_call(self, text_to_say):
-        with self.speak_lock:
-            self.is_speaking_now = True
-            with self.audio_lock:
-                self.finished_speech_buffer = FinishedSpeechBuffer()
+            # Clear the listener so we don't pick up our own voice.
+            with self.ear_lock:
+                self.ear = Ear()
 
             try:
-                audio_samples = self.speech_tools.turn_text_into_call_audio(text_to_say)
-                if audio_samples.size == 0:
-                    print("[Airvoice] TTS returned no audio")
+                # Generate the raw audio samples for the text.
+                audio = self.voice.to_audio(text)
+                if not audio.size:
                     return
 
-                print(f"[Airvoice] Speaking {audio_samples.size / CALL_AUDIO_SAMPLE_RATE:.2f}s")
+                # Send the samples as a stream of fixed-size chunks, paced in
+                # real time so the server and listeners don't get flooded.
+                start = time.monotonic()
+                for index, offset in enumerate(range(0, audio.size, AUDIO_CHUNK_SIZE)):
 
-                send_start_time = time.monotonic()
-                audio_packet_number = 0
+                    # Copy this slice into a fixed-size zero-padded chunk.
+                    slice_      = audio[offset:offset + AUDIO_CHUNK_SIZE]
+                    chunk       = numpy.zeros(AUDIO_CHUNK_SIZE, dtype=numpy.int16)
+                    chunk[:slice_.size] = slice_
 
-                for start_sample_index in range(0, audio_samples.size, AUDIO_SAMPLES_PER_PACKET):
-                    audio_packet = audio_samples[start_sample_index:start_sample_index + AUDIO_SAMPLES_PER_PACKET]
+                    # Sleep so packets leave at roughly real-time speed.
+                    next_send = start + index * AUDIO_CHUNK_SECONDS
+                    wait      = next_send - time.monotonic()
+                    if wait > 0:
+                        time.sleep(wait)
 
-                    if audio_packet.size < AUDIO_SAMPLES_PER_PACKET:
-                        padded_audio_packet = numpy.zeros(AUDIO_SAMPLES_PER_PACKET, dtype=numpy.int16)
-                        padded_audio_packet[:audio_packet.size] = audio_packet
-                        audio_packet = padded_audio_packet
+                    self.call.send_audio(chunk)
 
-                    send_time = send_start_time + audio_packet_number * AUDIO_PACKET_SECONDS
-                    seconds_until_send_time = send_time - time.monotonic()
-                    if seconds_until_send_time > 0:
-                        time.sleep(seconds_until_send_time)
-
-                    self.airvoice_connection.send_audio_to_call(audio_packet)
-                    audio_packet_number += 1
             finally:
-                self.ignore_call_audio_until = time.monotonic() + IGNORE_CALL_AUDIO_AFTER_SPEAKING_SECONDS
-                with self.audio_lock:
-                    self.finished_speech_buffer = FinishedSpeechBuffer()
-                self.is_speaking_now = False
+                # Ignore mic for a short time so our own tail-end doesn't
+                # loop back into the listener.
+                self.quiet_until = time.monotonic() + ECHO_IGNORE_TIME
+                with self.ear_lock:
+                    self.ear = Ear()
+                self.speaking = False
+
+    def _ask_ai(self, messages, options, label):
+        # Query Ollama and parse the JSON content it returns.
+        try:
+            response = self.ai.chat(
+                model    = self.model,
+                messages = messages,
+                format   = "json",
+                options  = options,
+            )
+            raw = (response.get("message", {}).get("content") or "").strip()
+            if not raw:
+                return {}
+            return json.loads(raw)
+
+        except Exception as error:
+            print(f"[Airvoice] {label}: {error}")
+            return {}
 
 
-
-active_brains = {}
-active_brains_lock = threading.Lock()
-
-
-def remove_brain_from_active_list(agent_id):
-    with active_brains_lock:
-        active_brains.pop(agent_id, None)
+# ============================================================================
+#                           PUBLIC  enable / disable
+# ----------------------------------------------------------------------------
+#  Keep a dict of running brains keyed by agent id. enable() starts one on
+#  a background thread; disable() tears it down.
+# ============================================================================
 
 
-def enable(agent_id, host=None, username=None, password=None, model=None):
-    with active_brains_lock:
-        if agent_id in active_brains:
+_running       = {}                  # agent_id -> Brain that's currently active
+_running_lock  = threading.Lock()    # protects _running from concurrent edits
+
+
+def _run_brain(agent_id, brain):
+    # Internal: run a brain on its own thread and unregister it when done.
+    try:
+        brain.activate()
+    finally:
+        with _running_lock:
+            _running.pop(agent_id, None)
+
+
+def enable(agent_id):
+    # Turn the voice bot on for the given agent. No-op if already running.
+    with _running_lock:
+        if agent_id in _running:
             return True
 
-    server_host = host or os.environ.get("AIRVOICE_HOST", "127.0.0.1")
-    username = username or os.environ.get("AIRVOICE_USER_PREFIX", "") + agent_id
-    password = password or os.environ.get("AIRVOICE_PASS", "harmony")
-    model_name = (
-        model
-        or os.environ.get("AIRVOICE_FAST_MODEL")
-        or os.environ.get("AIRVOICE_MODEL", DEFAULT_MODEL_NAME)
-    )
+    # The server IP is the only setting still pulled from the environment.
+    # Everything else is decided here in code.
+    server_host = os.environ.get("AIRVOICE_HOST", "127.0.0.1")
 
-    brain = AirvoiceAgentBrain(
-        server_host,
-        username,
-        password,
-        model_name,
-        agent_id=agent_id,
-    )
+    # The AirVoice login name is just the agent id - one voice bot per agent.
+    user_name = agent_id
 
-    with active_brains_lock:
-        if agent_id in active_brains:
+    # Generate a fresh random password for this session. It never leaves
+    # memory: no env var, no file, no database. Each call to enable() gets
+    # a brand-new password that is used once and then forgotten.
+    user_pass = secrets.token_urlsafe(24)
+
+    # The AI model is the default defined at the top of this file.
+    model_name = DEFAULT_AI_MODEL
+
+    # Build the brain outside the lock (network / AI setup can be slow).
+    brain = Brain(server_host, user_name, user_pass, model_name, agent_id=agent_id)
+
+    # Re-check under the lock in case another thread got there first.
+    with _running_lock:
+        if agent_id in _running:
             return True
-        active_brains[agent_id] = brain
+        _running[agent_id] = brain
 
-    threading.Thread(target=brain.run, daemon=True).start()
-    print(f"[Airvoice] Enabled for {agent_id} ({username}@{server_host})")
+    # Run the brain on a daemon thread so it dies with the process.
+    threading.Thread(target=_run_brain, args=(agent_id, brain), daemon=True).start()
+
+    print(f"[Airvoice] Enabled for {agent_id} ({user_name}@{server_host})")
     return True
 
 
 def disable(agent_id):
-    with active_brains_lock:
-        brain = active_brains.pop(agent_id, None)
+    # Turn the voice bot off for the given agent.
+    with _running_lock:
+        brain = _running.pop(agent_id, None)
 
     if not brain:
         return False
@@ -1075,6 +848,7 @@ def disable(agent_id):
     try:
         brain.stop()
     except Exception:
+        # Best-effort cleanup - ignore errors while shutting down.
         pass
 
     print(f"[Airvoice] Disabled for {agent_id}")
@@ -1082,10 +856,12 @@ def disable(agent_id):
 
 
 def is_enabled(agent_id):
-    with active_brains_lock:
-        return agent_id in active_brains
+    # True if a voice bot is currently running for this agent.
+    with _running_lock:
+        return agent_id in _running
 
 
 def enabled_ids():
-    with active_brains_lock:
-        return set(active_brains.keys())
+    # Snapshot of every agent id that currently has a voice bot running.
+    with _running_lock:
+        return set(_running.keys())
