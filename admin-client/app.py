@@ -225,6 +225,8 @@ class HarmonyApp(ctk.CTk):
         self._prev_status_message = ""
         self._prev_agent_status   = ""
         self._is_server_connected = True
+        self._active_plan_id      = None
+        self._prev_plan_sig       = ""
 
         self._setup_window()
         self._build_all_views()
@@ -519,6 +521,7 @@ class HarmonyApp(ctk.CTk):
         self.empty_state_subtitle.pack()
 
     def _build_bottom_bar(self):
+        self._build_plan_panel()
         wrap = ctk.CTkFrame(self.main_frame, fg_color="transparent", width=884)
         wrap.place(relx=0.5, rely=1.0, y=-20, anchor="s")
 
@@ -883,6 +886,85 @@ class HarmonyApp(ctk.CTk):
         else:
             self.plan_card.pack_forget()
 
+    # ── Plan panel (bottom-left) ───────────────────────────────────────────────
+    def _build_plan_panel(self):
+        # Rounded card anchored to the bottom-left corner. Matches the prompt
+        # box in height and visual style so the two read as a pair.
+        PANEL_W, PANEL_H = 290, 114
+
+        self.plan_panel = ctk.CTkFrame(self.main_frame,
+            fg_color="#282828", corner_radius=18,
+            border_width=1, border_color="#343434",
+            width=PANEL_W, height=PANEL_H)
+        self.plan_panel.place(relx=0.0, rely=1.0, x=22, y=-20, anchor="sw")
+        self.plan_panel.pack_propagate(False)
+
+        # Header row: "PLAN" label on the left, step counter on the right.
+        header = ctk.CTkFrame(self.plan_panel, fg_color="transparent", height=20)
+        header.pack(fill="x", padx=16, pady=(12, 4))
+        header.pack_propagate(False)
+
+        ctk.CTkLabel(header, text="PLAN", font=(FONT_MONO, 9, "bold"),
+                     text_color=MUTED, anchor="w").pack(side="left")
+
+        self.plan_counter_label = ctk.CTkLabel(header, text="",
+            font=(FONT_MONO, 9, "bold"), text_color=MUTED, anchor="e")
+        self.plan_counter_label.pack(side="right")
+
+        # Scrollable step list. Thin scrollbar hidden unless it's needed.
+        self.plan_steps_scroll = ctk.CTkScrollableFrame(self.plan_panel,
+            fg_color="transparent", scrollbar_button_color="#3a3a3a",
+            scrollbar_button_hover_color="#4a4a4a")
+        self.plan_steps_scroll.pack(fill="both", expand=True, padx=10, pady=(0, 8))
+
+        # Empty-state label shown when no plan exists.
+        self.plan_empty_label = ctk.CTkLabel(self.plan_steps_scroll,
+            text="No plan yet.\nYour next goal will be planned here.",
+            font=(FONT, 11), text_color="#6f6f6f", anchor="w", justify="left")
+        self.plan_empty_label.pack(fill="x", padx=6, pady=(4, 0), anchor="w")
+
+    def _render_plan(self, plan):
+        # Replace the step list. `plan` is a dict with "steps" and "current_step"
+        # keys (as returned by the server), or None for the empty state.
+        for child in self.plan_steps_scroll.winfo_children():
+            child.destroy()
+
+        if not plan or not plan.get("steps"):
+            self.plan_counter_label.configure(text="")
+            self.plan_empty_label = ctk.CTkLabel(self.plan_steps_scroll,
+                text="No plan yet.\nYour next goal will be planned here.",
+                font=(FONT, 11), text_color="#6f6f6f",
+                anchor="w", justify="left")
+            self.plan_empty_label.pack(fill="x", padx=6, pady=(4, 0), anchor="w")
+            return
+
+        steps = plan["steps"]
+        current = int(plan.get("current_step") or 0)
+        done = plan.get("status") == "done"
+
+        # Counter in the header: "3 / 5" or "Done" once the plan completes.
+        self.plan_counter_label.configure(
+            text="Done" if done else f"{min(current + 1, len(steps))} / {len(steps)}")
+
+        for index, step_text in enumerate(steps):
+            # Pick icon + colour based on whether this step is finished, the
+            # one currently running, or still waiting.
+            if done or index < current:
+                icon, icon_color, text_color = "✓", GREEN, "#c6c6c6"
+            elif index == current:
+                icon, icon_color, text_color = "▶", ACCENT, "#f4f4f4"
+            else:
+                icon, icon_color, text_color = "○", "#5a5a5a", "#8c8c8c"
+
+            row = ctk.CTkFrame(self.plan_steps_scroll, fg_color="transparent")
+            row.pack(fill="x", padx=6, pady=2, anchor="w")
+
+            ctk.CTkLabel(row, text=icon, font=(FONT, 12, "bold"),
+                         text_color=icon_color, width=18, anchor="w").pack(side="left")
+            ctk.CTkLabel(row, text=step_text, font=(FONT, 12),
+                         text_color=text_color, anchor="w", justify="left",
+                         wraplength=230).pack(side="left", fill="x", expand=True)
+
     # ── Connection status ─────────────────────────────────────────────────────
     def _update_connection_status(self, is_connected):
         if is_connected == self._is_server_connected: return
@@ -984,35 +1066,56 @@ class HarmonyApp(ctk.CTk):
         agent_id = self.selected_agent
         self.is_task_send_pending = True
         self.task_input.configure(state="disabled")
-        self.task_input.configure(placeholder_text="Sending...")
+        self.task_input.configure(placeholder_text="Planning...")
         self._show_or_hide_plan("")
         self._prev_plan_text = ""
 
         def background():
-            response = request({"action": "send_task", "task": task_text,
-                                "agent_id": agent_id, "user_id": self.user_id})
+            # First ask the planner to break the goal into a checklist.
+            plan_response = request({"action": "create_plan", "goal": task_text,
+                                     "agent_id": agent_id, "user_id": self.user_id})
 
-            def on_result():
-                self.is_task_send_pending = False
-                self.task_input.configure(state="normal")
-                if response.get("success"):
-                    self.task_input.delete(0, "end")
-                    self.task_input.configure(placeholder_text="Sent!")
-                    self._write_system_log(
-                        response.get("message", f"Task queued for {agent_id}"), CYAN)
+            # If planning failed, fall back to sending the task directly.
+            if not plan_response.get("success"):
+                fallback = request({"action": "send_task", "task": task_text,
+                                    "agent_id": agent_id, "user_id": self.user_id})
+
+                def on_fallback():
+                    self.is_task_send_pending = False
+                    self.task_input.configure(state="normal")
+                    if fallback.get("success"):
+                        self.task_input.delete(0, "end")
+                        self.task_input.configure(placeholder_text="Sent!")
+                        self._write_system_log(
+                            fallback.get("message", f"Task queued for {agent_id}"), CYAN)
+                    else:
+                        error_text = fallback.get("error") or "Failed to send task"
+                        self.task_input.configure(placeholder_text="Send failed")
+                        self._write_system_log(error_text, RED)
                     self.after(1200, lambda: self.task_input.configure(
                         placeholder_text=TASK_PLACEHOLDER))
                     self._sync_send_button_visual()
-                    return
 
-                error_text = response.get("error") or "Failed to send task"
-                self.task_input.configure(placeholder_text="Send failed")
-                self._write_system_log(error_text, RED)
-                self.after(1400, lambda: self.task_input.configure(
+                self.after(0, on_fallback)
+                return
+
+            plan = plan_response.get("plan") or {}
+
+            def on_planned():
+                self.is_task_send_pending = False
+                self.task_input.configure(state="normal")
+                self.task_input.delete(0, "end")
+                self.task_input.configure(placeholder_text="Plan ready!")
+                self._active_plan_id = plan.get("id")
+                self._prev_plan_sig = ""
+                self._render_plan(plan)
+                self._write_system_log(
+                    f"Planned {len(plan.get('steps', []))} steps for {agent_id}", CYAN)
+                self.after(1200, lambda: self.task_input.configure(
                     placeholder_text=TASK_PLACEHOLDER))
                 self._sync_send_button_visual()
 
-            self.after(0, on_result)
+            self.after(0, on_planned)
         self._run_in_background(background)
 
     # ── Button visibility ─────────────────────────────────────────────────────
@@ -1213,6 +1316,21 @@ class HarmonyApp(ctk.CTk):
                     self._prev_plan_text = plan_text
                     self._write_system_log("Plan generated")
                     self.after(0, lambda p=plan_text: self._show_or_hide_plan(p))
+
+                # Refresh the bottom-left plan panel. When a plan is active we
+                # ask the server for its current progress and re-render the
+                # checklist only when something actually changed.
+                if self._active_plan_id:
+                    plan_data = request({"action": "get_plan",
+                                         "plan_id": self._active_plan_id})
+                    plan = plan_data.get("plan") if plan_data else None
+                    if plan:
+                        signature = f"{plan.get('current_step')}|{plan.get('status')}"
+                        if signature != self._prev_plan_sig:
+                            self._prev_plan_sig = signature
+                            self.after(0, lambda p=plan: self._render_plan(p))
+                        if plan.get("status") == "done":
+                            self._active_plan_id = None
 
                 lf = hashlib.md5(f"{action_text}|{reasoning_text}".encode()).hexdigest()
                 if lf != self._prev_log_hash and (action_text or reasoning_text
