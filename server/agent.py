@@ -7,6 +7,7 @@ from config import RUNTIME_DIR
 from prompts import TASK_PROMPT
 from helpers import send, recv, receive_file, extract_json
 import database as db
+import planner
 
 MAX_HISTORY_LENGTH = 150
 MAX_AI_SCREENSHOT_BYTES = 1_500_000
@@ -146,6 +147,7 @@ class Agent:
             # 3. Done check
             if self.step["action"] in (None, "None"):
                 self.status, self.status_msg = "idle", "Done"
+                self._finish_current_task()
                 self.save()
                 return True
 
@@ -177,7 +179,25 @@ class Agent:
 
     def save(self):
         try:
-            db.update_agent(self.id, status=self.status, task=self.task, 
-                           status_text=self.status_msg, 
+            db.update_agent(self.id, status=self.status, task=self.task,
+                           status_text=self.status_msg,
                            step_json=json.dumps(self.step, ensure_ascii=False))
         except: pass
+
+    def _finish_current_task(self):
+        # Called when the agent believes the current task is complete.
+        # Marks the task row as done and, if the task was part of a plan,
+        # tells the planner to queue the next step.
+        if not self.task_id:
+            return
+        try:
+            task_row = db.get_task(self.task_id)
+            db.mark_task_done(self.task_id)
+            if task_row and task_row.get("plan_id"):
+                planner.step_finished(
+                    task_row["plan_id"],
+                    user_id=task_row.get("user_id"),
+                    agent_id=task_row.get("assigned_agent"),
+                )
+        except Exception as error:
+            print(f"[Agent {self.id}] Plan advance error: {error}")

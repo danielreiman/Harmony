@@ -77,7 +77,24 @@ def init_db():
             connected_at REAL NOT NULL,
             updated_at REAL NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS plans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            goal TEXT NOT NULL,
+            steps_json TEXT NOT NULL,
+            current_step INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'running',
+            user_id INTEGER,
+            agent_id TEXT,
+            created_at REAL NOT NULL
+        );
     """)
+
+    # Older databases may not have the plan_id column on tasks yet.
+    try:
+        execute_and_commit("ALTER TABLE tasks ADD COLUMN plan_id INTEGER")
+    except sqlite3.OperationalError:
+        pass
 
 
 def register_agent(agent_id):
@@ -114,11 +131,19 @@ def set_agent_status(agent_id, status):
     execute_and_commit("UPDATE agents SET status = ? WHERE agent_id = ?", (status, agent_id))
 
 
-def add_task(task_text, user_id=None, agent_id=None):
+def add_task(task_text, user_id=None, agent_id=None, plan_id=None):
     cursor = execute_and_commit(
-        "INSERT INTO tasks (task, status, assigned_agent, created_at, user_id) VALUES (?, 'queued', ?, ?, ?)",
-        (task_text, agent_id, time.time(), user_id))
+        "INSERT INTO tasks (task, status, assigned_agent, created_at, user_id, plan_id) VALUES (?, 'queued', ?, ?, ?, ?)",
+        (task_text, agent_id, time.time(), user_id, plan_id))
     return cursor.lastrowid
+
+
+def get_task(task_id):
+    return fetch_one_row("SELECT * FROM tasks WHERE id = ?", (task_id,))
+
+
+def mark_task_done(task_id):
+    execute_and_commit("UPDATE tasks SET status = 'done' WHERE id = ?", (task_id,))
 
 
 def get_queued_tasks(agent_id=None):
@@ -160,6 +185,51 @@ def create_user(username, password):
         return True
     except sqlite3.IntegrityError:
         return False
+
+
+# --- Plans ------------------------------------------------------------------
+
+def create_plan(goal, steps, user_id=None, agent_id=None):
+    # Store a new plan. `steps` is a list of short task descriptions.
+    cursor = execute_and_commit(
+        "INSERT INTO plans (goal, steps_json, user_id, agent_id, created_at) VALUES (?, ?, ?, ?, ?)",
+        (goal, json.dumps(steps), user_id, agent_id, time.time()))
+    return cursor.lastrowid
+
+
+def get_plan(plan_id):
+    plan = fetch_one_row("SELECT * FROM plans WHERE id = ?", (plan_id,))
+    if plan:
+        plan["steps"] = json.loads(plan["steps_json"])
+    return plan
+
+
+def get_plans_for_user(user_id):
+    rows = fetch_all_rows(
+        "SELECT * FROM plans WHERE user_id = ? ORDER BY id DESC",
+        (user_id,))
+    for row in rows:
+        row["steps"] = json.loads(row["steps_json"])
+    return rows
+
+
+def advance_plan(plan_id):
+    # Move to the next step. Returns the next step text, or None if finished.
+    plan = get_plan(plan_id)
+    if plan is None:
+        return None
+
+    next_index = plan["current_step"] + 1
+    if next_index >= len(plan["steps"]):
+        execute_and_commit(
+            "UPDATE plans SET status = 'done', current_step = ? WHERE id = ?",
+            (len(plan["steps"]), plan_id))
+        return None
+
+    execute_and_commit(
+        "UPDATE plans SET current_step = ? WHERE id = ?",
+        (next_index, plan_id))
+    return plan["steps"][next_index]
 
 
 def verify_user(username, password):
