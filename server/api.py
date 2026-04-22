@@ -8,6 +8,7 @@ import time
 import socket
 import database as db
 import airvoice
+import planner
 from config import RUNTIME_DIR
 from helpers import read_exact
 
@@ -165,6 +166,44 @@ def handle_disable_voice(request):
     return {"success": True, "voice_enabled": False}
 
 
+def handle_create_plan(request):
+    goal = (request.get("goal") or "").strip()
+    agent_id = request.get("agent_id")
+    user_id = request.get("user_id")
+
+    if not goal:
+        return {"error": "goal is required"}
+    if not agent_id:
+        return {"error": "agent_id is required"}
+    if db.get_agent(agent_id) is None:
+        return {"error": f"Agent {agent_id} not found"}
+
+    try:
+        plan_id = planner.create_plan(goal, user_id=user_id, agent_id=agent_id)
+    except Exception as error:
+        return {"error": str(error)}
+
+    if plan_id is None:
+        return {"error": "Could not build a plan for that goal"}
+
+    return {"success": True, "plan": db.get_plan(plan_id)}
+
+
+def handle_get_plan(request):
+    plan_id = request.get("plan_id")
+    if not plan_id:
+        return {"error": "plan_id is required"}
+    plan = db.get_plan(int(plan_id))
+    if plan is None:
+        return {"error": "Plan not found"}
+    return {"plan": plan}
+
+
+def handle_get_plans(request):
+    user_id = request.get("user_id")
+    return {"plans": db.get_plans_for_user(user_id)}
+
+
 def handle_auth_signup(request):
     u = request.get("username", "").strip()
     p = request.get("password", "")
@@ -221,6 +260,15 @@ def route_request(request):
 
     if action == "disable_voice":
         return handle_disable_voice(request)
+
+    if action == "create_plan":
+        return handle_create_plan(request)
+
+    if action == "get_plan":
+        return handle_get_plan(request)
+
+    if action == "get_plans":
+        return handle_get_plans(request)
 
     return {"error": f"Unknown action: {action}"}
 
