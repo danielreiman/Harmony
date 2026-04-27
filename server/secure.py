@@ -1,10 +1,13 @@
-# Secure channel.
+# How this works (no jargon):
 #
-# The server keeps a long-term lock (RSA private key). When a client
-# connects, the server hands out the matching public lock. The client
-# picks a random shared key, locks it with the public lock, and sends
-# it back — only the server can unlock it. After that, both sides
-# scramble every message with that shared key (AES-GCM).
+# The server keeps a private lock that only it can open. It hands out
+# a matching public lock that anyone can close but no one else can
+# open. When a client connects, the server gives it the public lock.
+# The client picks a random secret password, closes it inside the
+# public lock, and sends it back. Only the server can open it, so now
+# both sides know the password — and nobody else does. From then on,
+# every message is scrambled with that password before being sent,
+# and unscrambled on the other side.
 
 import json
 import os
@@ -36,9 +39,10 @@ def _recv(sock):
 
 
 class Channel:
-    def __init__(self, sock, shared_key):
+    # A connection where every message is scrambled with the shared password.
+    def __init__(self, sock, password):
         self.sock = sock
-        self.box = AESGCM(shared_key)
+        self.box = AESGCM(password)
 
     def send(self, message):
         try:
@@ -67,38 +71,42 @@ class Channel:
 
 
 def load_or_create_keys():
+    # Make a private/public lock pair the first time, then keep reusing it.
     if os.path.exists(KEY_FILE):
         with open(KEY_FILE, "rb") as f:
-            priv = serialization.load_pem_private_key(f.read(), None)
+            private_lock = serialization.load_pem_private_key(f.read(), None)
     else:
-        priv = rsa.generate_private_key(65537, 2048)
+        private_lock = rsa.generate_private_key(65537, 2048)
         with open(KEY_FILE, "wb") as f:
-            f.write(priv.private_bytes(
+            f.write(private_lock.private_bytes(
                 serialization.Encoding.PEM,
                 serialization.PrivateFormat.PKCS8,
                 serialization.NoEncryption()))
-    public_lock = priv.public_key().public_bytes(
+    public_lock = private_lock.public_key().public_bytes(
         serialization.Encoding.PEM,
         serialization.PublicFormat.SubjectPublicKeyInfo)
-    return priv, public_lock
+    return private_lock, public_lock
 
 
-def server_handshake(sock, priv, public_lock):
+def server_handshake(sock, private_lock, public_lock):
+    # Hand the client the public lock; receive the password it sent back.
     try:
         _send(sock, public_lock)
-        sealed = _recv(sock)
-        if not sealed:
+        sealed_password = _recv(sock)
+        if not sealed_password:
             return None
-        return Channel(sock, priv.decrypt(sealed, LOCK))
+        password = private_lock.decrypt(sealed_password, LOCK)
+        return Channel(sock, password)
     except (OSError, ValueError):
         return None
 
 
 def client_handshake(sock):
+    # Receive the public lock, pick a password, send it back inside the lock.
     public_lock = _recv(sock)
     if not public_lock:
         return None
-    pub_key = serialization.load_pem_public_key(public_lock)
-    shared_key = os.urandom(32)
-    _send(sock, pub_key.encrypt(shared_key, LOCK))
-    return Channel(sock, shared_key)
+    lock = serialization.load_pem_public_key(public_lock)
+    password = os.urandom(32)
+    _send(sock, lock.encrypt(password, LOCK))
+    return Channel(sock, password)
