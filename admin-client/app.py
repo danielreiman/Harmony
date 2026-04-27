@@ -844,8 +844,8 @@ class HarmonyApp(ctk.CTk):
 
         agent_id = self.selected_agent
         self.is_task_send_pending = True
-        self.task_input.configure(state="disabled")
-        self.task_input.configure(placeholder_text="Sending...")
+        self.task_input.delete(0, "end")
+        self._sync_send_button_visual()
 
         def background():
             response = request({"action": "send_task", "task": task_text,
@@ -853,18 +853,13 @@ class HarmonyApp(ctk.CTk):
 
             def on_done():
                 self.is_task_send_pending = False
-                self.task_input.configure(state="normal")
                 if response.get("success"):
-                    self.task_input.delete(0, "end")
-                    self.task_input.configure(placeholder_text="Sent!")
                     self._write_system_log(
                         response.get("message", f"Task queued for {agent_id}"), CYAN)
                 else:
-                    error_text = response.get("error") or "Failed to send task"
-                    self.task_input.configure(placeholder_text="Send failed")
-                    self._write_system_log(error_text, RED)
-                self.after(1200, lambda: self.task_input.configure(
-                    placeholder_text=TASK_PLACEHOLDER))
+                    self._write_system_log(
+                        response.get("error") or "Failed to send task", RED)
+                self.task_input.focus_set()
                 self._sync_send_button_visual()
 
             self.after(0, on_done)
