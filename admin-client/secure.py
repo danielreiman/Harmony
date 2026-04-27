@@ -1,6 +1,8 @@
-# Client side of the hybrid RSA + AES-GCM transport.
-# Server sends its RSA public key first; we reply with an
-# RSA-OAEP encrypted AES-256 session key, then everything is AES-GCM.
+# Secure channel — client side.
+#
+# Server hands us its public lock. We pick a random shared key, lock it
+# with that public lock, and send it back. Only the server can unlock
+# it. From then on, every message is scrambled with that shared key.
 
 import json
 import os
@@ -10,76 +12,62 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 
-_OAEP = padding.OAEP(mgf=padding.MGF1(hashes.SHA256()),
-                     algorithm=hashes.SHA256(), label=None)
+LOCK = padding.OAEP(padding.MGF1(hashes.SHA256()), hashes.SHA256(), None)
 
 
-def _read_exact(sock, n):
-    buf = b""
-    while len(buf) < n:
-        chunk = sock.recv(n - len(buf))
-        if not chunk:
-            return None
-        buf += chunk
-    return buf
-
-
-def _send_frame(sock, data):
+def _send(sock, data):
     sock.sendall(len(data).to_bytes(8, "big") + data)
 
 
-def _recv_frame(sock):
-    header = _read_exact(sock, 8)
-    if header is None:
-        return None
-    return _read_exact(sock, int.from_bytes(header, "big"))
+def _recv(sock):
+    def read(n):
+        buf = b""
+        while len(buf) < n:
+            chunk = sock.recv(n - len(buf))
+            if not chunk:
+                return None
+            buf += chunk
+        return buf
+    header = read(8)
+    return read(int.from_bytes(header, "big")) if header else None
 
 
-class Session:
-    def __init__(self, sock, aes_key):
+class Channel:
+    def __init__(self, sock, shared_key):
         self.sock = sock
-        self.aead = AESGCM(aes_key)
+        self.box = AESGCM(shared_key)
 
     def send(self, message):
         try:
-            self._send_bytes(json.dumps(message).encode("utf-8"))
+            self._put(json.dumps(message).encode())
             return True
-        except (OSError, ConnectionError):
+        except OSError:
             return False
 
     def recv(self):
-        try:
-            data = self._recv_bytes()
-            if data is None:
-                return None
-            return json.loads(data.decode("utf-8"))
-        except (OSError, ConnectionError, ValueError):
-            return None
+        data = self._get()
+        return json.loads(data) if data else None
 
     def send_bytes(self, data):
-        self._send_bytes(data)
+        self._put(data)
 
     def recv_bytes(self):
-        return self._recv_bytes()
+        return self._get()
 
-    def _send_bytes(self, data):
+    def _put(self, data):
         nonce = os.urandom(12)
-        ct = self.aead.encrypt(nonce, data, None)
-        _send_frame(self.sock, nonce + ct)
+        _send(self.sock, nonce + self.box.encrypt(nonce, data, None))
 
-    def _recv_bytes(self):
-        frame = _recv_frame(self.sock)
-        if frame is None or len(frame) < 13:
-            return None
-        return self.aead.decrypt(frame[:12], frame[12:], None)
+    def _get(self):
+        blob = _recv(self.sock)
+        return self.box.decrypt(blob[:12], blob[12:], None) if blob else None
 
 
 def client_handshake(sock):
-    pub_pem = _recv_frame(sock)
-    if pub_pem is None:
+    public_lock = _recv(sock)
+    if not public_lock:
         return None
-    pub_key = serialization.load_pem_public_key(pub_pem)
-    aes_key = os.urandom(32)
-    encrypted_key = pub_key.encrypt(aes_key, _OAEP)
-    _send_frame(sock, encrypted_key)
-    return Session(sock, aes_key)
+    pub_key = serialization.load_pem_public_key(public_lock)
+    shared_key = os.urandom(32)
+    _send(sock, pub_key.encrypt(shared_key, LOCK))
+    return Channel(sock, shared_key)
