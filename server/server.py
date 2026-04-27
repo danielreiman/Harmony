@@ -7,6 +7,7 @@ from agent import Agent
 from manager import Manager
 from api import run_api
 from database import init_db, register_agent, get_all_agents
+from secure import load_or_create_keys, server_handshake
 
 HOST = "0.0.0.0"
 AGENT_PORT = 1222
@@ -17,6 +18,8 @@ AI_MODEL = "qwen3.5:397b-cloud"
 def main():
     os.makedirs(RUNTIME_DIR, exist_ok=True)
     init_db()
+    priv_key, pub_pem = load_or_create_keys()
+    print("[✓] RSA keypair loaded")
 
     agents = {}
     agents_lock = threading.Lock()
@@ -58,13 +61,20 @@ def main():
     try:
         while True:
             client_conn, client_addr = server_socket.accept()
+
+            session = server_handshake(client_conn, priv_key, pub_pem)
+            if session is None:
+                print(f"[Server] Handshake failed from {client_addr[0]}")
+                client_conn.close()
+                continue
+
             with agents_lock:
                 taken = set(agents.keys())
             taken.update(row["agent_id"] for row in get_all_agents())
             agent_id = pick_agent_name(taken)
             print(f"[Server] Connected: {agent_id} from {client_addr[0]}")
 
-            agent = Agent(id=agent_id, model=AI_MODEL, conn=client_conn)
+            agent = Agent(id=agent_id, model=AI_MODEL, conn=client_conn, session=session)
 
             with agents_lock:
                 agents[agent_id] = agent

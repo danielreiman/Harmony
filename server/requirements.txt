@@ -1,10 +1,4 @@
 ollama
 python-dotenv
 python-cfonts
-
-# Airvoice connector (optional — only needed when voice is toggled on)
-numpy
-SpeechRecognition==3.16.0
-edge-tts
-imageio-ffmpeg
-Pillow
+cryptography

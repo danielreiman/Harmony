@@ -1,7 +1,7 @@
 import socket
 import threading
 
-from helpers import send, recv
+from secure import client_handshake
 
 server_host = "localhost"
 
@@ -32,9 +32,13 @@ def request(payload):
     try:
         sock.settimeout(10)
         sock.connect((server_host, API_SERVER_PORT))
-        send(sock, payload)
-        return recv(sock) or {}
-    except:
+        session = client_handshake(sock)
+        if session is None:
+            return {}
+        if not session.send(payload):
+            return {}
+        return session.recv() or {}
+    except Exception:
         return {}
     finally:
         sock.close()

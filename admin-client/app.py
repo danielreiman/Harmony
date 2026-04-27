@@ -29,13 +29,14 @@ AMBER        = "#d6b16a"
 CYAN         = "#a8a8a8"
 
 FONT, FONT_MONO  = "Helvetica Neue", "Menlo"
-WAITING_IMAGE_PATH = os.path.join(os.path.dirname(__file__), "waiting-image.png")
 
 AGENT_STATUS_LABELS = {
     "working": "working", "idle": "idle",
     "stop_requested": "stopping", "clear_requested": "clearing",
     "disconnect_requested": "disconnecting",
 }
+
+SCREEN_PREVIEW_SCALE = 0.88
 
 ctk.set_appearance_mode("dark")
 AUTH_WINDOW_SIZE = (520, 620)
@@ -211,22 +212,17 @@ class HarmonyApp(ctk.CTk):
         self.selected_agent       = None
         self.is_agent_working     = False
         self.is_task_send_pending = False
-        self._selected_connector  = None
         self.is_tasks_panel_open  = False
         self.is_logs_panel_open   = False
 
         self._known_agent_ids     = []
         self._known_agents        = []
         self._current_screenshot  = None
-        self._waiting_screenshot  = None
         self._prev_step_hash      = None
         self._prev_log_hash       = None
-        self._prev_plan_text      = ""
         self._prev_status_message = ""
         self._prev_agent_status   = ""
         self._is_server_connected = True
-        self._active_plan_id      = None
-        self._prev_plan_sig       = ""
 
         self._setup_window()
         self._build_all_views()
@@ -258,7 +254,6 @@ class HarmonyApp(ctk.CTk):
         self.geometry(f"{width}x{height}+{x}+{y}")
 
     def _enter_main_fullscreen(self):
-        """The workspace should occupy the real fullscreen space after sign-in."""
         try:
             self.state("normal")
         except Exception:
@@ -370,32 +365,7 @@ class HarmonyApp(ctk.CTk):
         self.screenshot_label.place(relx=0.5, rely=0.5, anchor="center")
 
     def _show_waiting_screenshot(self):
-        max_w = max(self.content_area.winfo_width() - 360, 280)
-        max_h = max(self.content_area.winfo_height() - 40, 220)
-        try:
-            image = Image.open(WAITING_IMAGE_PATH).convert("RGBA")
-            scale = min(max_w / image.width, max_h / image.height, 1.0)
-            fw, fh = max(1, int(image.width * scale)), max(1, int(image.height * scale))
-            image = image.resize((fw, fh), Image.LANCZOS)
-            self._waiting_screenshot = ctk.CTkImage(
-                light_image=image, dark_image=image, size=(fw, fh))
-            self.screenshot_label.configure(text="", image=self._waiting_screenshot)
-        except Exception:
-            self._waiting_screenshot = None
-            self.screenshot_label.configure(text=" ", image=None)
-
-    def _load_empty_state_art(self, max_width=460):
-        try:
-            image = Image.open(WAITING_IMAGE_PATH).convert("RGBA")
-            scale = min(max_width / image.width, 1.0)
-            fw, fh = max(1, int(image.width * scale)), max(1, int(image.height * scale))
-            image = image.resize((fw, fh), Image.LANCZOS)
-            self._empty_state_art = ctk.CTkImage(
-                light_image=image, dark_image=image, size=(fw, fh))
-            self.empty_state_art_label.configure(image=self._empty_state_art, text="")
-        except Exception:
-            self._empty_state_art = None
-            self.empty_state_art_label.configure(image=None, text="")
+        self.screenshot_label.configure(text=" ", image=None)
 
     def _build_floating_state_panel(self):
         CARD_W          = 360
@@ -418,12 +388,14 @@ class HarmonyApp(ctk.CTk):
             return ctk.CTkLabel(parent, text=text, font=LABEL_FONT,
                                 text_color=LABEL_COLOR, anchor="w")
 
-        # Outer column — transparent; each section gets its own card.
-        # Anchored to the top-right corner, fills the full height of the content area.
+        # Keep the right column fully on-screen, but reserve more width so the
+        # screenshot does not run underneath it.
+        self._info_cards_width = CARD_W
+        self._screen_right_reserve = CARD_W + 88
         self.info_cards_container = ctk.CTkFrame(self.screenshot_and_panels,
             fg_color="transparent", width=CARD_W)
         self.info_cards_container.place(relx=1.0, rely=0.0, relheight=1.0,
-                                        x=-10, anchor="ne")
+                                        x=-4, anchor="ne")
         self.info_cards_container.pack_propagate(False)
 
         # Vertical spacer pushes cards to center
@@ -460,12 +432,6 @@ class HarmonyApp(ctk.CTk):
             justify="left", wraplength=WRAP)
         self.reasoning_textbox.pack(fill="x",
             padx=CARD_PAD_X, pady=(0, CARD_PAD_Y), anchor="nw")
-
-        self.plan_card = ctk.CTkFrame(reason_card, fg_color="transparent")
-        self.plan_text_label = ctk.CTkLabel(self.plan_card, text="",
-            font=(FONT, 11), text_color="#8c8c8c", anchor="w", justify="left",
-            wraplength=WRAP)
-        self.plan_text_label.pack(fill="x", padx=CARD_PAD_X)
 
         # Removed from this panel — kept as hidden stubs so other code can
         # still call .configure on them without errors.
@@ -508,10 +474,6 @@ class HarmonyApp(ctk.CTk):
         self.empty_state_overlay = ctk.CTkFrame(self.screenshot_and_panels, fg_color="transparent")
         ctr = ctk.CTkFrame(self.empty_state_overlay, fg_color="transparent")
         ctr.place(relx=0.5, rely=0.44, anchor="center")
-        self.empty_state_art_label = ctk.CTkLabel(ctr, text="")
-        self.empty_state_art_label.pack(pady=(0, 18))
-        self._empty_state_art = None
-        self._load_empty_state_art()
         self.empty_state_title = ctk.CTkLabel(ctr, text="No agent connected",
                                               font=(FONT, 20, "bold"), text_color=TEXT)
         self.empty_state_title.pack(pady=(0, 6))
@@ -521,7 +483,6 @@ class HarmonyApp(ctk.CTk):
         self.empty_state_subtitle.pack()
 
     def _build_bottom_bar(self):
-        self._build_plan_panel()
         wrap = ctk.CTkFrame(self.main_frame, fg_color="transparent", width=884)
         wrap.place(relx=0.5, rely=1.0, y=-20, anchor="s")
 
@@ -547,12 +508,12 @@ class HarmonyApp(ctk.CTk):
 
         toolbar = ctk.CTkFrame(footer, fg_color="transparent")
         toolbar.pack(side="left")
-        self.logs_toggle_button = toolbar_item(toolbar, "▤", "Activity",
+        self.logs_toggle_button = toolbar_item(toolbar, "⌘", "Activity",
                                                self._toggle_logs_panel, 104)
-        self.logs_toggle_button.pack(side="left")
-        self.tasks_toggle_button = toolbar_item(toolbar, "☐", "Tasks",
+        self.logs_toggle_button.pack(side="left", padx=(0, 10))
+        self.tasks_toggle_button = toolbar_item(toolbar, "☑", "Tasks",
                                                 self._toggle_tasks_panel, 82)
-        self.tasks_toggle_button.pack(side="left", padx=(10, 0))
+        self.tasks_toggle_button.pack(side="left", padx=(0, 10))
 
         self.footer_actions = ctk.CTkFrame(footer, fg_color="transparent")
         self.footer_actions.pack(side="right")
@@ -562,13 +523,12 @@ class HarmonyApp(ctk.CTk):
             command=self._disconnect_current_agent)
         self.disconnect_button.pack(side="right", padx=(12, 0))
         self._is_disconnect_visible = True; self._hide_disconnect_button()
-        self.reset_memory_button = ctk.CTkButton(self.footer_actions, text="Reset",
-            width=56, height=24, corner_radius=6, fg_color="transparent",
+        self.reset_memory_button = ctk.CTkButton(self.footer_actions, text="Clear Memory",
+            width=112, height=24, corner_radius=6, fg_color="transparent",
             hover_color=ELEVATED, text_color=CYAN, font=(FONT, 12), border_width=0,
             command=self._reset_current_agent)
         self.reset_memory_button.pack(side="right", padx=(12, 0))
         self._is_reset_visible = True; self._hide_reset_button()
-        self._voice_enabled = False
 
         # Layered composer: task strip peeks out above and tucks behind the
         # prompt box. OVERLAP is how much of the strip hides behind the prompt.
@@ -632,49 +592,6 @@ class HarmonyApp(ctk.CTk):
         tools = ctk.CTkFrame(self.prompt_box, fg_color="transparent", height=42)
         tools.pack(fill="x", padx=16, pady=(12, 0))
         tools.pack_propagate(False)
-
-        left = ctk.CTkFrame(tools, fg_color="transparent")
-        left.place(x=10, rely=0.5, y=0, anchor="w")
-
-        self.connector_group = ctk.CTkFrame(left, fg_color="transparent")
-        self.connector_group.pack(side="left")
-        self.connector_label = ctk.CTkLabel(self.connector_group, text="Connector:",
-            font=(FONT, 13, "bold"), text_color="#c7c7c7")
-        self.connector_label.pack(side="left", padx=(0, 10))
-
-        self.connector_picker = ctk.CTkOptionMenu(self.connector_group,
-            values=["None", "AirVoice"], width=114, height=30, corner_radius=9,
-            fg_color="#282828", text_color="#a8a8a8", button_color="#282828",
-            button_hover_color="#343434", dropdown_fg_color="#2b2b2b",
-            dropdown_text_color="#f4f4f4", font=(FONT, 12, "bold"),
-            command=self._on_connector_selection_changed)
-        self.connector_picker.pack(side="left")
-        self.connector_picker.set("None")
-
-        self.voice_group = ctk.CTkFrame(self.connector_group, fg_color="transparent",
-            corner_radius=16, border_width=0)
-        self.voice_inner = ctk.CTkFrame(self.voice_group, fg_color="transparent")
-        self.voice_inner.pack(side="left", pady=7)
-        self.voice_click_area = ctk.CTkFrame(self.voice_inner, fg_color="transparent",
-            cursor="hand2")
-        self.voice_click_area.pack(side="left")
-        self.voice_content = ctk.CTkFrame(self.voice_click_area, fg_color="transparent")
-        self.voice_content.pack(side="left")
-        self.voice_icon = ctk.CTkLabel(self.voice_content, text="✦",
-            font=(FONT, 16, "bold"), text_color="#d8d8d8")
-        self.voice_icon.pack(side="left", padx=(0, 12))
-        self.voice_label = ctk.CTkLabel(self.voice_content, text="AirVoice",
-            font=(FONT, 13, "bold"), text_color="#d8d8d8")
-        self.voice_label.pack(side="left")
-        self.voice_beta_label = ctk.CTkLabel(self.voice_content, text=" (Research Preview)",
-            font=(FONT, 13), text_color="#9a9a9a")
-        self.voice_beta_label.pack(side="left")
-        for widget in (self.voice_group, self.voice_inner, self.voice_click_area,
-                       self.voice_content, self.voice_icon,
-                       self.voice_label, self.voice_beta_label):
-            widget.bind("<Button-1>", lambda _e: self._remove_voice_connector())
-        self._show_voice_picker()
-        self._is_voice_visible = True; self._hide_voice_button()
 
         right = ctk.CTkFrame(tools, fg_color="transparent")
         right.place(relx=1.0, rely=0.5, x=0, y=0, anchor="e")
@@ -753,52 +670,6 @@ class HarmonyApp(ctk.CTk):
         self._on_agent_selection_changed(None)
         self._run_in_background(self._fetch_agents_from_server)
 
-    def _enable_voice_for_current_agent(self):
-        if not self.selected_agent: return
-        agent_id = self.selected_agent
-        self._write_system_log(f"Enabling voice for {agent_id}")
-
-        def background():
-            response = request({"action": "enable_voice", "agent_id": agent_id})
-            enabled = bool(response.get("voice_enabled"))
-            self.after(0, lambda: self._apply_voice_state(agent_id, enabled))
-        self._run_in_background(background)
-
-    def _apply_voice_state(self, agent_id, enabled):
-        if agent_id != self.selected_agent:
-            return
-        self._voice_enabled = enabled
-        self._selected_connector = "AirVoice" if enabled else None
-        self._sync_voice_button_visual()
-
-    def _on_connector_selection_changed(self, chosen_value):
-        selected = None if chosen_value in (None, "None") else chosen_value
-        if selected == "AirVoice":
-            self._selected_connector = "AirVoice"
-            self._show_voice_chip()
-            self._sync_voice_button_visual()
-            self._enable_voice_for_current_agent()
-        else:
-            self._selected_connector = None
-            if self._voice_enabled:
-                self._remove_voice_connector()
-                return
-            self._show_voice_picker()
-        self._sync_voice_button_visual()
-
-    def _remove_voice_connector(self):
-        if self.selected_agent and self._selected_connector == "AirVoice":
-            agent_id = self.selected_agent
-            self._write_system_log(f"Disabling voice for {agent_id}")
-            def background():
-                request({"action": "disable_voice", "agent_id": agent_id})
-                self.after(0, lambda: self._apply_voice_state(agent_id, False))
-            self._run_in_background(background)
-        else:
-            self._voice_enabled = False
-            self._selected_connector = None
-            self._sync_voice_button_visual()
-
     def _reset_current_agent(self):
         if not self.selected_agent: return
         agent_id = self.selected_agent
@@ -809,7 +680,6 @@ class HarmonyApp(ctk.CTk):
         self.action_textbox.configure(text="—")
         self.reasoning_textbox.configure(text="—")
         self._set_task_text("No active task")
-        self._show_or_hide_plan("")
 
     def _on_agent_selection_changed(self, chosen_value):
         previous_agent = self.selected_agent
@@ -824,12 +694,7 @@ class HarmonyApp(ctk.CTk):
 
         for widget in self.log_scroll.winfo_children(): widget.destroy()
         self._prev_step_hash = self._prev_log_hash = None
-        self._prev_plan_text = self._prev_status_message = self._prev_agent_status = ""
-        self._voice_enabled = False
-        self._selected_connector = None
-        self._show_voice_picker()
-        self._sync_voice_button_visual()
-        self._show_or_hide_plan("")
+        self._prev_status_message = self._prev_agent_status = ""
         next_status = self._status_for_agent(self.selected_agent) if self.selected_agent else ""
         self._prev_agent_status = next_status
         self._set_send_button_working(next_status == "working")
@@ -878,92 +743,6 @@ class HarmonyApp(ctk.CTk):
                                     x=-16, anchor="e")
         else:
             self.strip_toggle.place_forget()
-
-    def _show_or_hide_plan(self, plan_text):
-        self.plan_text_label.configure(text=plan_text or "")
-        if plan_text:
-            self.plan_card.pack(fill="x", pady=(4, 0))
-        else:
-            self.plan_card.pack_forget()
-
-    # ── Plan panel (bottom-left) ───────────────────────────────────────────────
-    def _build_plan_panel(self):
-        # Rounded card anchored to the bottom-left corner. Matches the prompt
-        # box in height and visual style so the two read as a pair.
-        PANEL_W, PANEL_H = 290, 114
-
-        self.plan_panel = ctk.CTkFrame(self.main_frame,
-            fg_color="#282828", corner_radius=18,
-            border_width=1, border_color="#343434",
-            width=PANEL_W, height=PANEL_H)
-        self.plan_panel.place(relx=0.0, rely=1.0, x=22, y=-20, anchor="sw")
-        self.plan_panel.pack_propagate(False)
-
-        # Header row: "PLAN" label on the left, step counter on the right.
-        header = ctk.CTkFrame(self.plan_panel, fg_color="transparent", height=20)
-        header.pack(fill="x", padx=16, pady=(12, 4))
-        header.pack_propagate(False)
-
-        ctk.CTkLabel(header, text="PLAN", font=(FONT_MONO, 9, "bold"),
-                     text_color=MUTED, anchor="w").pack(side="left")
-
-        self.plan_counter_label = ctk.CTkLabel(header, text="",
-            font=(FONT_MONO, 9, "bold"), text_color=MUTED, anchor="e")
-        self.plan_counter_label.pack(side="right")
-
-        # Scrollable step list. Thin scrollbar hidden unless it's needed.
-        self.plan_steps_scroll = ctk.CTkScrollableFrame(self.plan_panel,
-            fg_color="transparent", scrollbar_button_color="#3a3a3a",
-            scrollbar_button_hover_color="#4a4a4a")
-        self.plan_steps_scroll.pack(fill="both", expand=True, padx=10, pady=(0, 8))
-
-        # Empty-state label shown when no plan exists.
-        self.plan_empty_label = ctk.CTkLabel(self.plan_steps_scroll,
-            text="No plan yet.\nYour next goal will be planned here.",
-            font=(FONT, 11), text_color="#6f6f6f", anchor="w", justify="left")
-        self.plan_empty_label.pack(fill="x", padx=6, pady=(4, 0), anchor="w")
-
-    def _render_plan(self, plan):
-        # Replace the step list. `plan` is a dict with "steps" and "current_step"
-        # keys (as returned by the server), or None for the empty state.
-        for child in self.plan_steps_scroll.winfo_children():
-            child.destroy()
-
-        if not plan or not plan.get("steps"):
-            self.plan_counter_label.configure(text="")
-            self.plan_empty_label = ctk.CTkLabel(self.plan_steps_scroll,
-                text="No plan yet.\nYour next goal will be planned here.",
-                font=(FONT, 11), text_color="#6f6f6f",
-                anchor="w", justify="left")
-            self.plan_empty_label.pack(fill="x", padx=6, pady=(4, 0), anchor="w")
-            return
-
-        steps = plan["steps"]
-        current = int(plan.get("current_step") or 0)
-        done = plan.get("status") == "done"
-
-        # Counter in the header: "3 / 5" or "Done" once the plan completes.
-        self.plan_counter_label.configure(
-            text="Done" if done else f"{min(current + 1, len(steps))} / {len(steps)}")
-
-        for index, step_text in enumerate(steps):
-            # Pick icon + colour based on whether this step is finished, the
-            # one currently running, or still waiting.
-            if done or index < current:
-                icon, icon_color, text_color = "✓", GREEN, "#c6c6c6"
-            elif index == current:
-                icon, icon_color, text_color = "▶", ACCENT, "#f4f4f4"
-            else:
-                icon, icon_color, text_color = "○", "#5a5a5a", "#8c8c8c"
-
-            row = ctk.CTkFrame(self.plan_steps_scroll, fg_color="transparent")
-            row.pack(fill="x", padx=6, pady=2, anchor="w")
-
-            ctk.CTkLabel(row, text=icon, font=(FONT, 12, "bold"),
-                         text_color=icon_color, width=18, anchor="w").pack(side="left")
-            ctk.CTkLabel(row, text=step_text, font=(FONT, 12),
-                         text_color=text_color, anchor="w", justify="left",
-                         wraplength=230).pack(side="left", fill="x", expand=True)
 
     # ── Connection status ─────────────────────────────────────────────────────
     def _update_connection_status(self, is_connected):
@@ -1066,56 +845,29 @@ class HarmonyApp(ctk.CTk):
         agent_id = self.selected_agent
         self.is_task_send_pending = True
         self.task_input.configure(state="disabled")
-        self.task_input.configure(placeholder_text="Planning...")
-        self._show_or_hide_plan("")
-        self._prev_plan_text = ""
+        self.task_input.configure(placeholder_text="Sending...")
 
         def background():
-            # First ask the planner to break the goal into a checklist.
-            plan_response = request({"action": "create_plan", "goal": task_text,
-                                     "agent_id": agent_id, "user_id": self.user_id})
+            response = request({"action": "send_task", "task": task_text,
+                                "agent_id": agent_id, "user_id": self.user_id})
 
-            # If planning failed, fall back to sending the task directly.
-            if not plan_response.get("success"):
-                fallback = request({"action": "send_task", "task": task_text,
-                                    "agent_id": agent_id, "user_id": self.user_id})
-
-                def on_fallback():
-                    self.is_task_send_pending = False
-                    self.task_input.configure(state="normal")
-                    if fallback.get("success"):
-                        self.task_input.delete(0, "end")
-                        self.task_input.configure(placeholder_text="Sent!")
-                        self._write_system_log(
-                            fallback.get("message", f"Task queued for {agent_id}"), CYAN)
-                    else:
-                        error_text = fallback.get("error") or "Failed to send task"
-                        self.task_input.configure(placeholder_text="Send failed")
-                        self._write_system_log(error_text, RED)
-                    self.after(1200, lambda: self.task_input.configure(
-                        placeholder_text=TASK_PLACEHOLDER))
-                    self._sync_send_button_visual()
-
-                self.after(0, on_fallback)
-                return
-
-            plan = plan_response.get("plan") or {}
-
-            def on_planned():
+            def on_done():
                 self.is_task_send_pending = False
                 self.task_input.configure(state="normal")
-                self.task_input.delete(0, "end")
-                self.task_input.configure(placeholder_text="Plan ready!")
-                self._active_plan_id = plan.get("id")
-                self._prev_plan_sig = ""
-                self._render_plan(plan)
-                self._write_system_log(
-                    f"Planned {len(plan.get('steps', []))} steps for {agent_id}", CYAN)
+                if response.get("success"):
+                    self.task_input.delete(0, "end")
+                    self.task_input.configure(placeholder_text="Sent!")
+                    self._write_system_log(
+                        response.get("message", f"Task queued for {agent_id}"), CYAN)
+                else:
+                    error_text = response.get("error") or "Failed to send task"
+                    self.task_input.configure(placeholder_text="Send failed")
+                    self._write_system_log(error_text, RED)
                 self.after(1200, lambda: self.task_input.configure(
                     placeholder_text=TASK_PLACEHOLDER))
                 self._sync_send_button_visual()
 
-            self.after(0, on_planned)
+            self.after(0, on_done)
         self._run_in_background(background)
 
     # ── Button visibility ─────────────────────────────────────────────────────
@@ -1139,40 +891,6 @@ class HarmonyApp(ctk.CTk):
             self.reset_memory_button.pack(side="right", padx=(12, 0))
             self._is_reset_visible = True
 
-    def _hide_voice_button(self):
-        if self._is_voice_visible:
-            self.connector_group.pack_forget()
-            self._is_voice_visible = False
-
-    def _show_voice_button(self):
-        if not self._is_voice_visible:
-            self.connector_group.pack(side="left")
-            self._is_voice_visible = True
-
-    def _show_voice_picker(self):
-        self.voice_group.pack_forget()
-        self.connector_picker.pack(side="left")
-        self.connector_picker.set("None")
-
-    def _show_voice_chip(self):
-        self.connector_picker.pack_forget()
-        self.voice_group.pack(side="left")
-
-    def _sync_voice_button_visual(self):
-        is_on = self._voice_enabled
-        if self._selected_connector == "AirVoice":
-            self._show_voice_chip()
-        else:
-            self._show_voice_picker()
-        self.voice_group.configure(
-            fg_color="transparent",
-            bg_color="#282828",
-            border_width=0,
-        )
-        self.voice_icon.configure(text_color="#8ec5ff" if is_on else "#9aa6b2")
-        self.voice_label.configure(text_color="#8ec5ff" if is_on else "#c2c8cf")
-        self.voice_beta_label.configure(text_color="#6faee8" if is_on else "#7e8791")
-
     # ── View refresh ──────────────────────────────────────────────────────────
     def _sync_agent_summary(self):
         if not self.selected_agent:
@@ -1195,7 +913,7 @@ class HarmonyApp(ctk.CTk):
             self.empty_state_subtitle.configure(text="Connect an agent to see its screen here")
             self.empty_state_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
             self.empty_state_overlay.lift()
-            self._hide_disconnect_button(); self._hide_reset_button(); self._hide_voice_button()
+            self._hide_disconnect_button(); self._hide_reset_button()
         elif not self._current_screenshot:
             self._show_waiting_screenshot()
             self.screen_meta.configure(text=f"{self.selected_agent} / waiting for screen")
@@ -1203,12 +921,12 @@ class HarmonyApp(ctk.CTk):
             self.empty_state_subtitle.configure(text="The agent hasn't sent a screenshot yet")
             self.empty_state_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
             self.empty_state_overlay.lift()
-            self._show_disconnect_button(); self._show_reset_button(); self._show_voice_button()
+            self._show_disconnect_button(); self._show_reset_button()
         else:
             status = AGENT_STATUS_LABELS.get(self._prev_agent_status, self._prev_agent_status or "idle")
             self.screen_meta.configure(text=f"{self.selected_agent} / {status}")
             self.empty_state_overlay.place_forget()
-            self._show_disconnect_button(); self._show_reset_button(); self._show_voice_button()
+            self._show_disconnect_button(); self._show_reset_button()
         self._sync_agent_summary()
 
     # ── Polling loops ─────────────────────────────────────────────────────────
@@ -1232,7 +950,7 @@ class HarmonyApp(ctk.CTk):
                     self.after(0, self._refresh_view_for_current_agent); return
 
                 screenshot = Image.open(BytesIO(base64.b64decode(raw_data))).convert("RGBA")
-                scale = min(max_w / screenshot.width, max_h / screenshot.height) * 0.95
+                scale = min(max_w / screenshot.width, max_h / screenshot.height) * SCREEN_PREVIEW_SCALE
                 fw, fh = int(screenshot.width * scale), int(screenshot.height * scale)
                 screenshot = screenshot.resize((fw, fh), Image.LANCZOS)
                 mask = Image.new("L", (fw, fh), 0)
@@ -1249,8 +967,9 @@ class HarmonyApp(ctk.CTk):
                 self.after(0, apply)
 
             self.update_idletasks()
+            reserve_w = getattr(self, "_screen_right_reserve", 360)
             self._run_in_background(background,
-                max(self.content_area.winfo_width() - 360, 280),
+                max(self.content_area.winfo_width() - reserve_w, 280),
                 max(self.content_area.winfo_height() - 40, 220))
         else:
             self.after(0, self._refresh_view_for_current_agent)
@@ -1270,10 +989,6 @@ class HarmonyApp(ctk.CTk):
                 cmd_output     = step_data.get("cmd_output")
                 current_task   = data.get("current_task") or data.get("task") or ""
                 agent_status   = data.get("status", "")
-                voice_enabled  = bool(data.get("voice_enabled"))
-                if voice_enabled != self._voice_enabled:
-                    self.after(0, lambda e=voice_enabled: self._apply_voice_state(agent_id, e))
-                plan_text      = step_data.get("plan", "")
                 status_message = data.get("status_text", "") or ""
 
                 if agent_status != self._prev_agent_status:
@@ -1311,26 +1026,6 @@ class HarmonyApp(ctk.CTk):
                     self.after(0, lambda a=primary: self.action_textbox.configure(text=a))
                     self.after(0, lambda r=disp_reasoning: self.reasoning_textbox.configure(text=r))
                     self.after(0, lambda t=disp_task: self._set_task_text(t))
-
-                if plan_text and plan_text != self._prev_plan_text:
-                    self._prev_plan_text = plan_text
-                    self._write_system_log("Plan generated")
-                    self.after(0, lambda p=plan_text: self._show_or_hide_plan(p))
-
-                # Refresh the bottom-left plan panel. When a plan is active we
-                # ask the server for its current progress and re-render the
-                # checklist only when something actually changed.
-                if self._active_plan_id:
-                    plan_data = request({"action": "get_plan",
-                                         "plan_id": self._active_plan_id})
-                    plan = plan_data.get("plan") if plan_data else None
-                    if plan:
-                        signature = f"{plan.get('current_step')}|{plan.get('status')}"
-                        if signature != self._prev_plan_sig:
-                            self._prev_plan_sig = signature
-                            self.after(0, lambda p=plan: self._render_plan(p))
-                        if plan.get("status") == "done":
-                            self._active_plan_id = None
 
                 lf = hashlib.md5(f"{action_text}|{reasoning_text}".encode()).hexdigest()
                 if lf != self._prev_log_hash and (action_text or reasoning_text

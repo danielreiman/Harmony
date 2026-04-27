@@ -128,26 +128,3 @@ def act(step):
         print(f"[Client] Action '{action}' failed: {e}")
         return {"success": False, "output": str(e)}
 
-def _read_exact(sock, size):
-    received = b""
-    while len(received) < size:
-        chunk = sock.recv(size - len(received))
-        if not chunk: return None
-        received += chunk
-    return received
-
-def send_message(sock, obj):
-    data = json.dumps(obj).encode()
-    sock.sendall(len(data).to_bytes(8, "big") + data)
-
-def receive_message(sock):
-    size_bytes = _read_exact(sock, 8)
-    if not size_bytes: return None
-    size = int.from_bytes(size_bytes, "big")
-    data = _read_exact(sock, size)
-    return json.loads(data.decode()) if data else None
-
-def send_file(sock, path):
-    with open(path, "rb") as f:
-        data = f.read()
-    sock.sendall(len(data).to_bytes(8, "big") + data)
