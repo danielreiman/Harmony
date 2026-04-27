@@ -1,8 +1,12 @@
-# Secure channel — client side.
+# How this works (no jargon):
 #
-# Server hands us its public lock. We pick a random shared key, lock it
-# with that public lock, and send it back. Only the server can unlock
-# it. From then on, every message is scrambled with that shared key.
+# The server has a private lock that only it can open, plus a matching
+# public lock that anyone can close. When we connect, the server gives
+# us the public lock. We pick a random secret password, close it
+# inside the public lock, and send it back. Only the server can open
+# it, so now both sides know the password — and nobody else does.
+# From then on, every message is scrambled with that password before
+# being sent, and unscrambled on the other side.
 
 import json
 import os
@@ -33,9 +37,10 @@ def _recv(sock):
 
 
 class Channel:
-    def __init__(self, sock, shared_key):
+    # A connection where every message is scrambled with the shared password.
+    def __init__(self, sock, password):
         self.sock = sock
-        self.box = AESGCM(shared_key)
+        self.box = AESGCM(password)
 
     def send(self, message):
         try:
@@ -64,10 +69,11 @@ class Channel:
 
 
 def client_handshake(sock):
+    # Receive the public lock, pick a password, send it back inside the lock.
     public_lock = _recv(sock)
     if not public_lock:
         return None
-    pub_key = serialization.load_pem_public_key(public_lock)
-    shared_key = os.urandom(32)
-    _send(sock, pub_key.encrypt(shared_key, LOCK))
-    return Channel(sock, shared_key)
+    lock = serialization.load_pem_public_key(public_lock)
+    password = os.urandom(32)
+    _send(sock, lock.encrypt(password, LOCK))
+    return Channel(sock, password)
