@@ -4,7 +4,6 @@ import database as db
 
 POLL_INTERVAL_SECONDS = 0.2
 
-
 class Manager:
     def __init__(self, connected_agents, connected_agents_lock):
         self.connected_agents = connected_agents

@@ -6,7 +6,8 @@ import tkinter as tk
 from PIL import Image, ImageTk
 import pyautogui
 
-from helpers import discover, act, send_message, receive_message, send_file
+from helpers import discover, act
+from secure import client_handshake
 
 RUNTIME_DIR = "./runtime"
 SCREENSHOT_PATH = os.path.join(RUNTIME_DIR, "screenshot.png")
@@ -14,32 +15,36 @@ SERVER_PORT = 1222
 
 def main():
     os.makedirs(RUNTIME_DIR, exist_ok=True)
-    
+
     print("[Client] Searching for Harmony server...")
     server_ip = discover(timeout=30)
     if not server_ip:
         print("[Client] No server found.")
         return
-        
+
     print(f"[Client] Found server at {server_ip}")
-    
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((server_ip, SERVER_PORT))
-    print("[Client] Connected to server")
-    
-    first_msg = receive_message(sock) or {}
+    session = client_handshake(sock)
+    if session is None:
+        print("[Client] Secure handshake failed.")
+        return
+    print("[Client] Secure channel established")
+
+    first_msg = session.recv() or {}
     agent_id = first_msg.get("agent_id", "unknown")
     print(f"[Client] Assigned ID: {agent_id}")
 
     def _loop():
         try:
             while True:
-                message = receive_message(sock)
+                message = session.recv()
                 if not message:
                     break
-                    
+
                 m_type = message.get("type", "")
-                
+
                 if m_type == "request_screenshot":
                     try:
                         screenshot = pyautogui.screenshot()
@@ -48,12 +53,13 @@ def main():
                         print(f"[Client] Screenshot failed: {e}")
                         screenshot = Image.new("RGB", (1280, 720), (30, 30, 30))
                         screenshot.save(SCREENSHOT_PATH)
-                    send_file(sock, SCREENSHOT_PATH)
-                    
+                    with open(SCREENSHOT_PATH, "rb") as f:
+                        session.send_bytes(f.read())
+
                 elif m_type == "execute_step":
                     step = message.get("step", {})
                     result = act(step)
-                    send_message(sock, {
+                    session.send({
                         "type": "execution_result",
                         "success": result["success"],
                         "output": result.get("output"),
@@ -73,9 +79,8 @@ def main():
     root.overrideredirect(True)
     root.attributes("-topmost", True, "-alpha", 0.92)
 
-    # Start network socket listener in the background
     threading.Thread(target=_loop, daemon=True).start()
-    
+
     bg_color = "black"
     root.configure(bg=bg_color)
     if sys.platform == "darwin":
@@ -102,7 +107,7 @@ def main():
 
     canvas.create_text(72, h // 2 - 11, text=f"Harmony ({agent_id})", fill="#ffffff", font=("Helvetica", 13), anchor="w")
     canvas.create_text(72, h // 2 + 11, text="This computer is being controlled by Harmony Agent", fill="#999999", font=("Helvetica", 11), anchor="w")
-    
+
     root.deiconify()
     root.mainloop()
 

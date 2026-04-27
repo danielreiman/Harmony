@@ -5,9 +5,8 @@ from PIL import Image, ImageOps
 import config
 from config import RUNTIME_DIR
 from prompts import TASK_PROMPT
-from helpers import send, recv, receive_file, extract_json
+from helpers import extract_json
 import database as db
-import planner
 
 MAX_HISTORY_LENGTH = 150
 MAX_AI_SCREENSHOT_BYTES = 1_500_000
@@ -39,10 +38,11 @@ def prepare_screenshot_for_ai(source_path, output_path):
 
 
 class Agent:
-    def __init__(self, id, model, conn):
+    def __init__(self, id, model, conn, session):
         self.id = id
         self.model = model
         self.conn = conn
+        self.session = session
         self.status = "idle"
         self.task = None
         self.task_id = None
@@ -60,7 +60,7 @@ class Agent:
         self.save()
 
     def activate(self):
-        send({"type": "connected", "agent_id": self.id}, self.conn)
+        self.session.send({"type": "connected", "agent_id": self.id})
         print(f"[Agent {self.id}] Ready")
         try:
             while True:
@@ -105,8 +105,11 @@ class Agent:
             # 1. Look
             self.status_msg = "Looking..."
             self.save()
-            if not send({"type": "request_screenshot"}, self.conn): return False
-            if not receive_file(self.screen_path, self.conn): return False
+            if not self.session.send({"type": "request_screenshot"}): return False
+            screen_bytes = self.session.recv_bytes()
+            if not screen_bytes: return False
+            with open(self.screen_path, "wb") as f:
+                f.write(screen_bytes)
 
             ai_screen_path = prepare_screenshot_for_ai(self.screen_path, self.ai_screen_path)
             self.history.append({"role": "user", "content": "Current screen:", "images": [ai_screen_path]})
@@ -158,9 +161,9 @@ class Agent:
                 "Next Action": self.step["action"], "Coordinate": self.step["coordinate"],
                 "Value": self.step["value"], "EndCoordinate": res.get("EndCoordinate")
             }
-            if not send({"type": "execute_step", "step": cmd_step}, self.conn): return False
-            
-            result = recv(self.conn) or {}
+            if not self.session.send({"type": "execute_step", "step": cmd_step}): return False
+
+            result = self.session.recv() or {}
             if result.get("output"):
                 self.history.append({"role": "user", "content": f"[Command output]:\n{result['output']}"})
                 self.step["cmd_output"] = result["output"]
@@ -185,19 +188,9 @@ class Agent:
         except: pass
 
     def _finish_current_task(self):
-        # Called when the agent believes the current task is complete.
-        # Marks the task row as done and, if the task was part of a plan,
-        # tells the planner to queue the next step.
         if not self.task_id:
             return
         try:
-            task_row = db.get_task(self.task_id)
             db.mark_task_done(self.task_id)
-            if task_row and task_row.get("plan_id"):
-                planner.step_finished(
-                    task_row["plan_id"],
-                    user_id=task_row.get("user_id"),
-                    agent_id=task_row.get("assigned_agent"),
-                )
         except Exception as error:
-            print(f"[Agent {self.id}] Plan advance error: {error}")
+            print(f"[Agent {self.id}] Task finish error: {error}")
