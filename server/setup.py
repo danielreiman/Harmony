@@ -65,11 +65,11 @@ def main():
     clear()
     banner()
 
-    step(1, "Configure Ollama connection")
-    typed(f"  {DIM}Enter your Ollama API key to connect the AI engine.{RESET}", 0.015)
+    step(1, "Configure Holo3 connection")
+    typed(f"  {DIM}Enter your Holo3 API key to connect the AI engine.{RESET}", 0.015)
     print()
 
-    api_key = prompt("Ollama API Key")
+    api_key = prompt("Holo3 API Key")
 
     if not api_key:
         error("API key is required. Setup aborted.")
@@ -85,7 +85,7 @@ def main():
         time.sleep(0.08)
 
     with open(".env", "w") as f:
-        f.write(f"OLLAMA_API_KEY={api_key}\n")
+        f.write(f"HAI_API_KEY={api_key}\n")
 
     sys.stdout.write(f"\r    {GREEN}✓{RESET}  Configuration saved to .env    \n")
     print()
