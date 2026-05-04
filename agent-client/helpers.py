@@ -2,79 +2,19 @@ import json
 import os
 import socket
 import subprocess
+import sys
 import time
 import pyautogui
-from nacl.public import PublicKey, SealedBox
-from cryptography.fernet import Fernet
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from transport import client_secure, Secure
 
 BROADCAST_PORT = 3030
 
 
-def send_frame(sock, data):
-    sock.sendall(len(data).to_bytes(8, "big") + data)
-
-
-def recv_frame(sock):
-    size = sock.recv(8)
-    if not size:
-        return None
-    size = int.from_bytes(size, "big")
-    data = b""
-    while len(data) < size:
-        chunk = sock.recv(size - len(data))
-        if not chunk:
-            return None
-        data += chunk
-    return data
-
-
-def client_secure(sock):
-    try:
-        public = recv_frame(sock)               # 1 receive public key
-        if not public:
-            return None
-        key = Fernet.generate_key()             # 2 make session key
-        sealed_key = SealedBox(PublicKey(public)).encrypt(key)  # 3 seal key
-        send_frame(sock, sealed_key)            # 4 send sealed key
-        return Secure(key)                      # 5 ready
-    except Exception:
-        return None
-
-
-class Secure:
-    def __init__(self, key):
-        self.cipher = Fernet(key)
-
-    def send(self, sock, data):
-        if isinstance(data, dict):
-            data = json.dumps(data).encode()
-        try:
-            encrypted = self.cipher.encrypt(data)   # 1 encrypt
-            send_frame(sock, encrypted)             # 2 send
-            return True
-        except Exception:
-            return False
-
-    def recv(self, sock):
-        encrypted = recv_frame(sock)                # 1 receive
-        if not encrypted:
-            return None
-        return self.cipher.decrypt(encrypted)       # 2 decrypt
-
-
 def discover(timeout=30, server_port=1222):
-    try:  # check if server is running locally first
-        test = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        test.settimeout(1)
-        test.connect(("127.0.0.1", server_port))
-        test.close()
-        return "127.0.0.1"
-    except OSError:
-        pass
-
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
     sock.bind(("", BROADCAST_PORT))
     sock.settimeout(timeout)
     try:
