@@ -1,4 +1,6 @@
-ollama
+openai
+pynacl
+cryptography
 python-dotenv
 python-cfonts
-cryptography
+Pillow
