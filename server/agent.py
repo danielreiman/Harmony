@@ -1,12 +1,8 @@
-import base64, json, os, threading, time, traceback
-
+import base64, json, os, threading, time, traceback, config, database as db
 from openai import OpenAI
-
-import config
 from config import RUNTIME_DIR
 from prompts import TASK_PROMPT
 from helpers import extract_json, prepare_screenshot_for_ai
-import database as db
 
 MAX_HISTORY_LENGTH = 150
 

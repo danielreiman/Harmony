@@ -1,5 +1,4 @@
 import json, socket, threading
-
 from helpers import client_secure
 
 server_host = "localhost"

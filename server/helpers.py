@@ -1,8 +1,6 @@
 import json, os, random, socket, time
-
 from nacl.public import PrivateKey
 from PIL import Image, ImageOps
-
 from shared import send_frame, recv_frame, Secure, server_secure
 
 BROADCAST_PORT = 3030

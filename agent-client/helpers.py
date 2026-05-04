@@ -1,7 +1,4 @@
-import json, os, socket, subprocess, time
-
-import pyautogui
-
+import json, os, socket, subprocess, time, pyautogui
 from shared import client_secure, Secure
 
 BROADCAST_PORT = 3030

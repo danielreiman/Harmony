@@ -1,6 +1,4 @@
-import base64, json, os, shutil, signal, socket, threading, time
-
-import database as db
+import base64, json, os, shutil, signal, socket, threading, time, database as db
 from config import RUNTIME_DIR
 from helpers import load_keys, server_secure
 
