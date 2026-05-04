@@ -1,8 +1,4 @@
-import hashlib
-import os
-import sqlite3
-import threading
-import time
+import hashlib, os, sqlite3, threading, time
 
 
 DATABASE_FILE_PATH = os.path.join(os.path.dirname(__file__), "harmony.db")
