@@ -1,14 +1,9 @@
-import json
-import os
-import random
-import socket
-import sys
-import time
-from nacl.public import PrivateKey, SealedBox
+import json, os, random, socket, sys, time
+from nacl.public import PrivateKey
 from PIL import Image, ImageOps
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from transport import send_frame, recv_frame, Secure
+from transport import send_frame, recv_frame, Secure, server_secure
 
 BROADCAST_PORT = 3030
 KEYS_FILE = os.path.join(os.path.dirname(__file__), "server_keys.bin")
@@ -38,17 +33,6 @@ def load_keys():
     public = bytes(private.public_key)
     return private, public
 
-
-def server_secure(sock, private, public):
-    try:
-        send_frame(sock, public)                # 1 send public key
-        sealed_key = recv_frame(sock)           # 2 receive sealed key
-        if not sealed_key:
-            return None
-        key = SealedBox(private).decrypt(sealed_key)  # 3 open key
-        return Secure(key)                      # 4 ready
-    except Exception:
-        return None
 
 def prepare_screenshot_for_ai(src, dst):
     try:

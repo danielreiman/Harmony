@@ -1,5 +1,5 @@
 import json
-from nacl.public import PublicKey, SealedBox
+from nacl.public import PrivateKey, PublicKey, SealedBox
 from cryptography.fernet import Fernet
 
 
@@ -19,6 +19,18 @@ def recv_frame(sock):
             return None
         data += chunk
     return data
+
+
+def server_secure(sock, private, public):
+    try:
+        send_frame(sock, public)                # 1 send public key
+        sealed_key = recv_frame(sock)           # 2 receive sealed key
+        if not sealed_key:
+            return None
+        key = SealedBox(private).decrypt(sealed_key)  # 3 open key
+        return Secure(key)                      # 4 ready
+    except Exception:
+        return None
 
 
 def client_secure(sock):
