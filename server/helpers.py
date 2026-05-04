@@ -1,9 +1,9 @@
-import json, os, random, socket, sys, time
+import json, os, random, socket, time
+
 from nacl.public import PrivateKey
 from PIL import Image, ImageOps
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from transport import send_frame, recv_frame, Secure, server_secure
+from shared import send_frame, recv_frame, Secure, server_secure
 
 BROADCAST_PORT = 3030
 KEYS_FILE = os.path.join(os.path.dirname(__file__), "server_keys.bin")

@@ -1,8 +1,7 @@
-import os
-import socket
-import threading
+import os, socket, threading
+
 from config import RUNTIME_DIR
-from helpers import broadcast, local_ip, pick_agent_name, load_keys, server_secure
+from helpers import broadcast, pick_agent_name, load_keys, server_secure
 from agent import Agent
 from manager import Manager
 from gateway import run_gateway
@@ -10,7 +9,7 @@ from database import init_db, register_agent, get_all_agents
 
 HOST = "0.0.0.0"
 AGENT_PORT = 1222
-API_PORT = 1223
+GATEWAY_PORT = 1223
 AI_MODEL = "holo3-35b-a3b"
 
 
@@ -39,14 +38,13 @@ def main():
 
     gateway_thread = threading.Thread(
         target=run_gateway,
-        kwargs={"host": HOST, "port": API_PORT},
+        kwargs={"host": HOST, "port": GATEWAY_PORT},
         daemon=True
     )
     gateway_thread.start()
 
-    lan_ip = local_ip()
-    print(f"[✓] Gateway started on http://localhost:{API_PORT}")
-    print(f"[✓] Gateway LAN URL: http://{lan_ip}:{API_PORT}")
+    print(f"[✓] Gateway started on http://localhost:{GATEWAY_PORT}")
+    print(f"[✓] Gateway LAN URL")
 
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

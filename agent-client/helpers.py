@@ -1,13 +1,8 @@
-import json
-import os
-import socket
-import subprocess
-import sys
-import time
+import json, os, socket, subprocess, time
+
 import pyautogui
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from transport import client_secure, Secure
+from shared import client_secure, Secure
 
 BROADCAST_PORT = 3030
 
@@ -38,7 +33,7 @@ WAIT_DEFAULT   = 0.15
 NEEDS_POSITION = {"left_click", "double_click", "right_click", "click", "drag"}
 
 
-def to_screen_position(coord, screen_w, screen_h):
+def scale_ai_coordinates(coord, screen_w, screen_h):
     if not coord or len(coord) != 2:
         raise ValueError("Invalid coordinate")
     x = int((max(0, min(1000, coord[0])) / 1000.0) * screen_w)
@@ -48,40 +43,28 @@ def to_screen_position(coord, screen_w, screen_h):
 
 def act(step):
     action = step.get("Next Action")
-    value  = step.get("Value")
-    coord  = step.get("Coordinate")
+    value = step.get("Value")
+    coord = step.get("Coordinate")
+
     sw, sh = pyautogui.size()
 
     try:
+        # Move if needed
         if action in NEEDS_POSITION:
-            x, y = to_screen_position(coord, sw, sh)
+            x, y = scale_ai_coordinates(coord, sw, sh)
             pyautogui.moveTo(x, y, duration=MOVE_SPEED)
 
         if action in ("click", "left_click"):
             pyautogui.click(button="left")
 
         elif action == "double_click":
-            pyautogui.click()
-            time.sleep(CLICK_PAUSE)
-            pyautogui.click()
+            pyautogui.doubleClick(interval=CLICK_PAUSE)
 
         elif action == "right_click":
             pyautogui.click(button="right")
 
-        elif action == "drag":
-            end = step.get("EndCoordinate") or step.get("End Coordinate") or step.get("end_coordinate")
-            if not end:
-                return {"success": False, "output": "drag requires EndCoordinate"}
-            ex, ey = to_screen_position(end, sw, sh)
-            pyautogui.mouseDown(button="left")
-            time.sleep(0.25)
-            for i in range(1, 31):
-                pyautogui.moveTo(x + (ex - x) * i / 30, y + (ey - y) * i / 30, duration=0.02)
-            time.sleep(0.25)
-            pyautogui.mouseUp(button="left")
-
         elif action == "type":
-            pyautogui.write(value, interval=TYPE_SPEED)
+            pyautogui.write(value or "", interval=TYPE_SPEED)
 
         elif action == "press_key":
             pyautogui.press(value)
@@ -96,18 +79,41 @@ def act(step):
         elif action == "scroll_down":
             pyautogui.scroll(-SCROLL_AMOUNT)
 
+        elif action == "drag":
+            end = step.get("EndCoordinate")
+
+            if not end:
+                return {"success": False, "output": "drag requires EndCoordinate"}
+
+            ex, ey = scale_ai_coordinates(end, sw, sh)
+            pyautogui.dragTo(ex, ey, duration=0.7, button="left")
+
         elif action == "run_command":
-            result = subprocess.run(value, shell=True, capture_output=True, text=True, timeout=30)
-            output = (result.stdout + result.stderr).strip()
+            result = subprocess.run(
+                value,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+            command_output = result.stdout.strip()
+            error_output = result.stderr.strip()
+
+            output = command_output + error_output
             if len(output) > 2000:
                 output = output[:2000] + "\n... (truncated)"
+
             return {"success": True, "output": output}
 
         elif action == "wait":
             time.sleep(float(value or WAIT_DEFAULT))
 
         elif action in (None, "None"):
-            return {"success": True, "output": None}
+            pass
+
+        else:
+            return {"success": False, "output": f"unknown action: {action}"}
 
         return {"success": True, "output": None}
 

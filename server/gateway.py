@@ -1,11 +1,5 @@
-import os
-import json
-import base64
-import signal
-import threading
-import shutil
-import time
-import socket
+import base64, json, os, shutil, signal, socket, threading, time
+
 import database as db
 from config import RUNTIME_DIR
 from helpers import load_keys, server_secure

@@ -1,12 +1,8 @@
-import os
-import socket
-import sys
-import threading
-import tkinter as tk
-from PIL import Image, ImageTk
-import pyautogui
+import json, os, socket, threading, tkinter as tk
 
-import json
+import pyautogui
+from PIL import Image, ImageTk
+
 from helpers import discover, act, client_secure
 
 RUNTIME_DIR = "./runtime"

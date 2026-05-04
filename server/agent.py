@@ -1,4 +1,5 @@
-import os, threading, json, time, traceback, base64
+import base64, json, os, threading, time, traceback
+
 from openai import OpenAI
 
 import config
@@ -78,15 +79,22 @@ class Agent:
             # 1. Look
             self.status_msg = "Looking..."
             self.save()
-            if not self.security.send(self.conn, {"type": "request_screenshot"}): return False
+
+            request_screenshot = self.security.send(self.conn, {"type": "request_screenshot"})
+            if not request_screenshot:
+                return False
+
             screen_bytes = self.security.recv(self.conn)
-            if not screen_bytes: return False
+            if not screen_bytes:
+                return False
+
             with open(self.screen_path, "wb") as f:
                 f.write(screen_bytes)
 
             ai_screen_path = prepare_screenshot_for_ai(self.screen_path, self.ai_screen_path)
             with open(ai_screen_path, "rb") as f:
                 b64 = base64.b64encode(f.read()).decode("ascii")
+
             self.history.append({
                 "role": "user",
                 "content": [
@@ -101,6 +109,7 @@ class Agent:
             head = self.history[:2] if len(self.history) >= 2 else list(self.history)
             tail = self.history[2:][-MAX_HISTORY_LENGTH:] if len(self.history) > 2 else []
             messages = head + tail
+
             try:
                 response = self.ai.chat.completions.create(model=self.model, messages=messages)
                 raw_text = (response.choices[0].message.content or "").strip()
@@ -112,21 +121,21 @@ class Agent:
                 self.save()
                 return True
 
-            res = extract_json(raw_text)
-            if not isinstance(res, dict):
-                res = {}
+            response = extract_json(raw_text)
+            if not isinstance(response, dict):
+                response = {}
             self.step = {
-                "status_short": str(res.get("Status", "Working..."))[:40],
-                "reasoning": res.get("Reasoning", "") or "",
-                "action": res.get("Next Action"),
-                "coordinate": res.get("Coordinate"),
-                "value": res.get("Value")
+                "status_short": str(response.get("Status", "Working..."))[:40],
+                "reasoning": response.get("Reasoning", "") or "",
+                "action": response.get("Next Action"),
+                "coordinate": response.get("Coordinate"),
+                "value": response.get("Value")
             }
 
             # Drop the screenshot image from the last user message to save memory
-            last = self.history[-1] if self.history else None
-            if isinstance(last, dict) and isinstance(last.get("content"), list):
-                last["content"] = "Current screen: (omitted)"
+            if self.history and isinstance(self.history[-1]["content"], list):
+                self.history[-1]["content"] = "Current screen removed to save space"
+
             self.history.append({"role": "assistant", "content": raw_text})
 
             # 3. Done check
@@ -141,9 +150,11 @@ class Agent:
             self.save()
             cmd_step = {
                 "Next Action": self.step["action"], "Coordinate": self.step["coordinate"],
-                "Value": self.step["value"], "EndCoordinate": res.get("EndCoordinate")
+                "Value": self.step["value"], "EndCoordinate": response.get("EndCoordinate")
             }
-            if not self.security.send(self.conn, {"type": "execute_step", "step": cmd_step}): return False
+
+            execute_request = self.security.send(self.conn, {"type": "execute_step", "step": cmd_step})
+            if not execute_request: return False
 
             data = self.security.recv(self.conn)
             result = json.loads(data) if data else {}
