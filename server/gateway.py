@@ -8,7 +8,7 @@ import time
 import socket
 import database as db
 from config import RUNTIME_DIR
-from secure import load_or_create_keys, server_handshake
+from helpers import load_keys, server_secure
 
 
 def handle_get_agents():
@@ -178,37 +178,37 @@ def route_request(request):
     return {"error": f"Unknown action: {action}"}
 
 
-def handle_connection(conn, priv_key, pub_pem):
+def handle_connection(conn, our_key, open_key):
     try:
-        session = server_handshake(conn, priv_key, pub_pem)
-        if session is None:
+        security = server_secure(conn, our_key, open_key)
+        if security is None:
             return
-        request = session.recv()
+        data = security.recv(conn)
+        request = json.loads(data) if data else None
         if request is not None:
-            response = route_request(request)
-            session.send(response)
+            security.send(conn, route_request(request))
     except Exception as error:
-        print(f"[API] Connection error: {error}")
+        print(f"[Gateway] Connection error: {error}")
     finally:
         conn.close()
 
 
-def run_api(host="0.0.0.0", port=1223):
-    priv_key, pub_pem = load_or_create_keys()
+def run_gateway(host="0.0.0.0", port=1223):
+    our_key, open_key = load_keys()
     try:
         server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server_sock.bind((host, port))
         server_sock.listen()
-        print(f"[✓] API socket listening on port {port}")
+        print(f"[✓] Gateway socket listening on port {port}")
     except Exception as error:
-        print(f"[✗] API failed to start on port {port}: {error}")
+        print(f"[✗] Gateway failed to start on port {port}: {error}")
         return
 
     while True:
         try:
             conn, _ = server_sock.accept()
-            t = threading.Thread(target=handle_connection, args=(conn, priv_key, pub_pem), daemon=True)
+            t = threading.Thread(target=handle_connection, args=(conn, our_key, open_key), daemon=True)
             t.start()
         except Exception:
             break

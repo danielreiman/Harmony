@@ -2,24 +2,23 @@ import os
 import socket
 import threading
 from config import RUNTIME_DIR
-from helpers import broadcast, local_ip, pick_agent_name
+from helpers import broadcast, local_ip, pick_agent_name, load_keys, server_secure
 from agent import Agent
 from manager import Manager
-from api import run_api
+from gateway import run_gateway
 from database import init_db, register_agent, get_all_agents
-from secure import load_or_create_keys, server_handshake
 
 HOST = "0.0.0.0"
 AGENT_PORT = 1222
 API_PORT = 1223
-AI_MODEL = "qwen3.5:397b-cloud"
+AI_MODEL = "holo3-35b-a3b"
 
 
 def main():
     os.makedirs(RUNTIME_DIR, exist_ok=True)
     init_db()
-    priv_key, pub_pem = load_or_create_keys()
-    print("[✓] RSA keypair loaded")
+    our_key, open_key = load_keys()
+    print("[✓] Locks loaded")
 
     agents = {}
     agents_lock = threading.Lock()
@@ -38,16 +37,16 @@ def main():
     manager_thread.start()
     print("[✓] Task manager started")
 
-    api_thread = threading.Thread(
-        target=run_api,
+    gateway_thread = threading.Thread(
+        target=run_gateway,
         kwargs={"host": HOST, "port": API_PORT},
         daemon=True
     )
-    api_thread.start()
+    gateway_thread.start()
 
     lan_ip = local_ip()
-    print(f"[✓] API started on http://localhost:{API_PORT}")
-    print(f"[✓] API LAN URL: http://{lan_ip}:{API_PORT}")
+    print(f"[✓] Gateway started on http://localhost:{API_PORT}")
+    print(f"[✓] Gateway LAN URL: http://{lan_ip}:{API_PORT}")
 
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -62,8 +61,8 @@ def main():
         while True:
             client_conn, client_addr = server_socket.accept()
 
-            session = server_handshake(client_conn, priv_key, pub_pem)
-            if session is None:
+            security = server_secure(client_conn, our_key, open_key)
+            if security is None:
                 print(f"[Server] Handshake failed from {client_addr[0]}")
                 client_conn.close()
                 continue
@@ -74,7 +73,7 @@ def main():
             agent_id = pick_agent_name(taken)
             print(f"[Server] Connected: {agent_id} from {client_addr[0]}")
 
-            agent = Agent(id=agent_id, model=AI_MODEL, conn=client_conn, session=session)
+            agent = Agent(id=agent_id, model=AI_MODEL, conn=client_conn, security=security)
 
             with agents_lock:
                 agents[agent_id] = agent

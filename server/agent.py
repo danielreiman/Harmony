@@ -1,48 +1,21 @@
-import os, threading, json, time, traceback
-from ollama import Client
-from PIL import Image, ImageOps
+import os, threading, json, time, traceback, base64
+from openai import OpenAI
 
 import config
 from config import RUNTIME_DIR
 from prompts import TASK_PROMPT
-from helpers import extract_json
+from helpers import extract_json, prepare_screenshot_for_ai
 import database as db
 
 MAX_HISTORY_LENGTH = 150
-MAX_AI_SCREENSHOT_BYTES = 1_500_000
-MAX_AI_SCREENSHOT_SIDE = 1280
-MIN_AI_SCREENSHOT_QUALITY = 35
-
-
-def prepare_screenshot_for_ai(source_path, output_path):
-    try:
-        with Image.open(source_path) as image:
-            image = ImageOps.exif_transpose(image)
-            image.thumbnail((MAX_AI_SCREENSHOT_SIDE, MAX_AI_SCREENSHOT_SIDE), Image.Resampling.LANCZOS)
-
-            if image.mode != "RGB":
-                image = image.convert("RGB")
-
-            quality = 70
-            while quality >= MIN_AI_SCREENSHOT_QUALITY:
-                image.save(output_path, format="JPEG", quality=quality, optimize=True)
-                if os.path.getsize(output_path) <= MAX_AI_SCREENSHOT_BYTES:
-                    return output_path
-                quality -= 10
-
-            image.save(output_path, format="JPEG", quality=MIN_AI_SCREENSHOT_QUALITY, optimize=True)
-            return output_path
-    except Exception as error:
-        print(f"[Agent] Could not shrink screenshot for AI: {error}")
-        return source_path
 
 
 class Agent:
-    def __init__(self, id, model, conn, session):
+    def __init__(self, id, model, conn, security):
         self.id = id
         self.model = model
         self.conn = conn
-        self.session = session
+        self.security = security
         self.status = "idle"
         self.task = None
         self.task_id = None
@@ -54,13 +27,13 @@ class Agent:
         self.ai_screen_path = os.path.join(RUNTIME_DIR, f"screenshot_{self.id}_ai.jpg")
         os.makedirs(RUNTIME_DIR, exist_ok=True)
 
-        api_key = config.OLLAMA_API_KEY
-        if not api_key: raise RuntimeError("OLLAMA_API_KEY not found")
-        self.ai = Client(host="https://ollama.com", headers={"Authorization": f"Bearer {api_key}"})
+        api_key = config.HAI_API_KEY
+        if not api_key: raise RuntimeError("HAI_API_KEY not found")
+        self.ai = OpenAI(api_key=api_key, base_url="https://api.hcompany.ai/v1/")
         self.save()
 
     def activate(self):
-        self.session.send({"type": "connected", "agent_id": self.id})
+        self.security.send(self.conn, {"type": "connected", "agent_id": self.id})
         print(f"[Agent {self.id}] Ready")
         try:
             while True:
@@ -69,7 +42,7 @@ class Agent:
                 try:
                     keep = self.run()
                 except Exception as e:
-                    print(f"[Agent {self.id}] Step error: {e}\n{traceback.format_exc()}")
+                    print(f"[Agent {self.id}] Step error: {e}")
                     self.status_msg = f"Recovered from error: {type(e).__name__}"
                     self.status = "idle"
                     self.task = None
@@ -105,14 +78,22 @@ class Agent:
             # 1. Look
             self.status_msg = "Looking..."
             self.save()
-            if not self.session.send({"type": "request_screenshot"}): return False
-            screen_bytes = self.session.recv_bytes()
+            if not self.security.send(self.conn, {"type": "request_screenshot"}): return False
+            screen_bytes = self.security.recv(self.conn)
             if not screen_bytes: return False
             with open(self.screen_path, "wb") as f:
                 f.write(screen_bytes)
 
             ai_screen_path = prepare_screenshot_for_ai(self.screen_path, self.ai_screen_path)
-            self.history.append({"role": "user", "content": "Current screen:", "images": [ai_screen_path]})
+            with open(ai_screen_path, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode("ascii")
+            self.history.append({
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Current screen:"},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
+                ]
+            })
 
             # 2. Think
             self.status_msg = "Thinking..."
@@ -121,8 +102,8 @@ class Agent:
             tail = self.history[2:][-MAX_HISTORY_LENGTH:] if len(self.history) > 2 else []
             messages = head + tail
             try:
-                response = self.ai.chat(model=self.model, messages=messages)
-                raw_text = (response.get("message", {}).get("content") or "").strip()
+                response = self.ai.chat.completions.create(model=self.model, messages=messages)
+                raw_text = (response.choices[0].message.content or "").strip()
             except Exception as e:
                 print(f"[Agent {self.id}] AI error: {e}")
                 self.status = "idle"
@@ -142,9 +123,10 @@ class Agent:
                 "value": res.get("Value")
             }
 
-            # Cleanup images from history to save tokens/memory
-            if self.history and isinstance(self.history[-1], dict) and self.history[-1].get("images"):
-                self.history[-1].pop("images", None)
+            # Drop the screenshot image from the last user message to save memory
+            last = self.history[-1] if self.history else None
+            if isinstance(last, dict) and isinstance(last.get("content"), list):
+                last["content"] = "Current screen: (omitted)"
             self.history.append({"role": "assistant", "content": raw_text})
 
             # 3. Done check
@@ -161,9 +143,10 @@ class Agent:
                 "Next Action": self.step["action"], "Coordinate": self.step["coordinate"],
                 "Value": self.step["value"], "EndCoordinate": res.get("EndCoordinate")
             }
-            if not self.session.send({"type": "execute_step", "step": cmd_step}): return False
+            if not self.security.send(self.conn, {"type": "execute_step", "step": cmd_step}): return False
 
-            result = self.session.recv() or {}
+            data = self.security.recv(self.conn)
+            result = json.loads(data) if data else {}
             if result.get("output"):
                 self.history.append({"role": "user", "content": f"[Command output]:\n{result['output']}"})
                 self.step["cmd_output"] = result["output"]

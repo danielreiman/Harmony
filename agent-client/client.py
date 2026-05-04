@@ -6,8 +6,8 @@ import tkinter as tk
 from PIL import Image, ImageTk
 import pyautogui
 
-from helpers import discover, act
-from secure import client_handshake
+import json
+from helpers import discover, act, client_secure
 
 RUNTIME_DIR = "./runtime"
 SCREENSHOT_PATH = os.path.join(RUNTIME_DIR, "screenshot.png")
@@ -26,23 +26,23 @@ def main():
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((server_ip, SERVER_PORT))
-    session = client_handshake(sock)
-    if session is None:
-        print("[Client] Secure handshake failed.")
+    security = client_secure(sock)
+    if security is None:
+        print("[Client] Handshake failed.")
         return
-    print("[Client] Secure channel established")
 
-    first_msg = session.recv() or {}
+    data = security.recv(sock)
+    first_msg = json.loads(data) if data else {}
     agent_id = first_msg.get("agent_id", "unknown")
     print(f"[Client] Assigned ID: {agent_id}")
 
     def _loop():
         try:
             while True:
-                message = session.recv()
-                if not message:
+                data = security.recv(sock)
+                if not data:
                     break
-
+                message = json.loads(data)
                 m_type = message.get("type", "")
 
                 if m_type == "request_screenshot":
@@ -54,12 +54,12 @@ def main():
                         screenshot = Image.new("RGB", (1280, 720), (30, 30, 30))
                         screenshot.save(SCREENSHOT_PATH)
                     with open(SCREENSHOT_PATH, "rb") as f:
-                        session.send_bytes(f.read())
+                        security.send(sock, f.read())
 
                 elif m_type == "execute_step":
                     step = message.get("step", {})
                     result = act(step)
-                    session.send({
+                    security.send(sock, {
                         "type": "execution_result",
                         "success": result["success"],
                         "output": result.get("output"),
