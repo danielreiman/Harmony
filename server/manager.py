@@ -1,5 +1,4 @@
-import time
-import database as db
+import time, database as db
 
 
 POLL_INTERVAL_SECONDS = 0.2

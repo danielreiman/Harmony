@@ -1,10 +1,7 @@
-import base64, hashlib, os, threading, tkinter as tk
+import base64, hashlib, os, threading, tkinter as tk, customtkinter as ctk
 from datetime import datetime
 from io import BytesIO
-
-import customtkinter as ctk
 from PIL import Image, ImageDraw, ImageTk
-
 from bridge import request
 
 # ── Theme ─────────────────────────────────────────────────────────────────────

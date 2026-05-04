@@ -1,5 +1,4 @@
 import os, socket, threading
-
 from config import RUNTIME_DIR
 from helpers import broadcast, pick_agent_name, load_keys, server_secure
 from agent import Agent
