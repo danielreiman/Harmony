@@ -1,7 +1,13 @@
-import json, os, socket,pyautogui, threading, tkinter as tk
+import json, os, socket, sys, pyautogui, threading, tkinter as tk
 
 from PIL import Image, ImageTk
-from helpers import discover, act, client_secure
+from discovery import discover
+from actions import act
+
+_here = os.path.dirname(__file__)
+sys.path.insert(0, os.path.dirname(_here))
+
+from transport import client_secure
 
 RUNTIME_DIR = "./runtime"
 SCREENSHOT_PATH = os.path.join(RUNTIME_DIR, "screenshot.png")
@@ -90,7 +96,7 @@ def main():
     canvas.place(x=0, y=0)
     canvas.create_rectangle(0, 0, w, h, fill="#1a1a1a", outline="#2a2a2a", width=1)
 
-    icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
+    icon_path = os.path.join(os.path.dirname(__file__), "resources", "icon.png")
     try:
         icon_img = ImageTk.PhotoImage(Image.open(icon_path).resize((36, 36), Image.LANCZOS))
         icon_lbl = tk.Label(canvas, image=icon_img, bg="#1a1a1a")

@@ -1,24 +1,4 @@
-import json, os, socket, subprocess, time, pyautogui
-from shared import client_secure, Secure
-
-BROADCAST_PORT = 3030
-
-
-def discover(timeout=30, server_port=1222):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(("", BROADCAST_PORT))
-    sock.settimeout(timeout)
-    try:
-        while True:
-            packet, (ip, _) = sock.recvfrom(1024)
-            if packet == b"HARMONY_SERVER":
-                return ip
-    except socket.timeout:
-        raise RuntimeError(f"No Harmony server found within {timeout}s")
-    finally:
-        sock.close()
-
+import json, subprocess, time, pyautogui
 
 MOVE_SPEED     = 0.15
 TYPE_SPEED     = 0.01
@@ -27,7 +7,7 @@ CLICK_PAUSE    = 0.05
 SCROLL_AMOUNT  = 500
 WAIT_DEFAULT   = 0.15
 
-NEEDS_POSITION = {"left_click", "double_click", "right_click", "click", "drag"}
+NEEDS_POSITION = {"left_click", "double_click", "right_click", "drag"}
 
 
 def scale_ai_coordinates(coord, screen_w, screen_h):
@@ -46,12 +26,11 @@ def act(step):
     sw, sh = pyautogui.size()
 
     try:
-        # Move if needed
         if action in NEEDS_POSITION:
             x, y = scale_ai_coordinates(coord, sw, sh)
             pyautogui.moveTo(x, y, duration=MOVE_SPEED)
 
-        if action in ("click", "left_click"):
+        if action == "left_click":
             pyautogui.click(button="left")
 
         elif action == "double_click":
@@ -94,10 +73,7 @@ def act(step):
                 timeout=30,
             )
 
-            command_output = result.stdout.strip()
-            error_output = result.stderr.strip()
-
-            output = command_output + error_output
+            output = result.stdout.strip() + result.stderr.strip()
             if len(output) > 2000:
                 output = output[:2000] + "\n... (truncated)"
 
