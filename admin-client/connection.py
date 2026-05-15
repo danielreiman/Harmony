@@ -1,11 +1,17 @@
-import json, socket, threading
-from shared import client_secure, Secure
+import json, socket, threading, os, sys
+
+_here = os.path.dirname(__file__)
+sys.path.insert(0, os.path.dirname(_here))
+
+from transport import client_secure, Secure
+
+
 
 server_host = "localhost"
 
 UDP_DISCOVERY_PORT = 3030
-HARMONY_BEACON     = b"HARMONY_SERVER"
-API_SERVER_PORT    = 1223
+HARMONY_BEACON = b"HARMONY_SERVER"
+GATEWAY_SERVER_PORT = 1223
 
 
 def watch_for_server():
@@ -28,7 +34,7 @@ def request(payload):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         sock.settimeout(10)
-        sock.connect((server_host, API_SERVER_PORT))
+        sock.connect((server_host, GATEWAY_SERVER_PORT))
         security = client_secure(sock)
         if security is None:
             return {}

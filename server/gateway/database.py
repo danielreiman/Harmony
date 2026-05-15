@@ -1,13 +1,13 @@
 import hashlib, os, sqlite3, threading, time
 
 
-DATABASE_FILE_PATH = os.path.join(os.path.dirname(__file__), "harmony.db")
+DATABASE_FILE_PATH = os.path.join(os.path.dirname(__file__), "resources", "harmony.db")
 _local = threading.local()  # each worker gets its own link to the database
 
 
 def get_connection():
     # If it already opened the database earlier, use that same one again.
-    if hasattr(_local, "conn"): # Check inside the thread object if there is a conn in it already
+    if hasattr(_local, "conn"):
         return _local.conn
 
     # Open the database file for the first time.
@@ -16,7 +16,7 @@ def get_connection():
     conn.execute("PRAGMA journal_mode=WAL")    # let many threads read and write at once
     conn.execute("PRAGMA busy_timeout=30000")  # if it's busy, wait up to 30 seconds
     conn.execute("PRAGMA synchronous=NORMAL")  # faster writes
-    conn.row_factory = sqlite3.Row  # access columns by name (row["id"]) instead of index (row[0])
+    conn.row_factory = sqlite3.Row             # access columns by name (row["id"]) instead of index (row[0])
 
     # Remember it so it don't open a new one next time.
     _local.conn = conn
@@ -35,6 +35,7 @@ def fetch_one_row(sql, params=()):
 def execute_and_commit(sql, params=()):
     connection = get_connection()
     connection.execute("BEGIN IMMEDIATE")
+
     try:
         cursor = connection.execute(sql, params)
         connection.execute("COMMIT")
@@ -65,9 +66,9 @@ def init_db():
 
         CREATE TABLE IF NOT EXISTS agents (
             agent_id TEXT PRIMARY KEY,
-            status TEXT NOT NULL DEFAULT 'idle',
+            agent_state TEXT NOT NULL DEFAULT 'idle',
             task TEXT,
-            status_text TEXT,
+            agent_activity_message TEXT,
             step_json TEXT,
             connected_at REAL NOT NULL,
             updated_at REAL NOT NULL
@@ -75,22 +76,35 @@ def init_db():
     """)
 
 
+# ── Agents ───────────────────────────────────────────────────────────────────
+
 def register_agent(agent_id):
     now = time.time()
+
     execute_and_commit(
-        "INSERT OR REPLACE INTO agents (agent_id, status, connected_at, updated_at) VALUES (?, 'idle', ?, ?)",
+        "INSERT OR REPLACE INTO agents (agent_id, agent_state, connected_at, updated_at) VALUES (?, 'idle', ?, ?)",
         (agent_id, now, now))
 
 
 def update_agent(agent_id, **fields):
-    allowed = {"status", "task", "status_text", "step_json"}
+    allowed = {"agent_state", "task", "agent_activity_message", "step_json"}
     safe = {k: v for k, v in fields.items() if k in allowed}
+
     if not safe:
         return
+
     safe["updated_at"] = time.time()
+
     set_clause = ", ".join(f"{k} = ?" for k in safe)
-    execute_and_commit(f"UPDATE agents SET {set_clause} WHERE agent_id = ?",
-                       list(safe.values()) + [agent_id])
+    execute_and_commit(
+        f"UPDATE agents SET {set_clause} WHERE agent_id = ?",
+        list(safe.values()) + [agent_id])
+
+
+def set_agent_state(agent_id, agent_state):
+    execute_and_commit(
+        "UPDATE agents SET agent_state = ? WHERE agent_id = ?",
+        (agent_state, agent_id))
 
 
 def remove_agent(agent_id):
@@ -105,9 +119,7 @@ def get_all_agents():
     return fetch_all_rows("SELECT * FROM agents ORDER BY agent_id")
 
 
-def set_agent_status(agent_id, status):
-    execute_and_commit("UPDATE agents SET status = ? WHERE agent_id = ?", (status, agent_id))
-
+# ── Tasks ────────────────────────────────────────────────────────────────────
 
 def add_task(task_text, user_id=None, agent_id=None):
     cursor = execute_and_commit(
@@ -129,6 +141,7 @@ def get_queued_tasks(agent_id=None):
         return fetch_all_rows(
             "SELECT id, task, assigned_agent FROM tasks WHERE status = 'queued' AND assigned_agent = ? ORDER BY id",
             (agent_id,))
+
     return fetch_all_rows(
         "SELECT id, task, assigned_agent FROM tasks WHERE status = 'queued' AND assigned_agent IS NULL ORDER BY id")
 
@@ -147,15 +160,20 @@ def assign_task(task_id, agent_id):
 
 def delete_task(task_id, user_id):
     task = fetch_one_row("SELECT id, user_id FROM tasks WHERE id = ?", (task_id,))
+
     if task is None or str(task["user_id"]) != str(user_id):
         return False
+
     execute_and_commit("DELETE FROM tasks WHERE id = ?", (task_id,))
     return True
 
 
+# ── Users ────────────────────────────────────────────────────────────────────
+
 def create_user(username, password):
     salt = os.urandom(32).hex()
     hashed = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000).hex()
+
     try:
         execute_and_commit(
             "INSERT INTO users (username, password_hash, salt, created_at) VALUES (?, ?, ?, ?)",
@@ -165,10 +183,11 @@ def create_user(username, password):
         return False
 
 
-
 def verify_user(username, password):
     user = fetch_one_row("SELECT id, password_hash, salt FROM users WHERE username = ?", (username,))
+
     if user is None:
         return None
+
     hashed = hashlib.pbkdf2_hmac("sha256", password.encode(), user["salt"].encode(), 100_000).hex()
     return user["id"] if hashed == user["password_hash"] else None

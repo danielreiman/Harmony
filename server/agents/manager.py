@@ -3,21 +3,25 @@ import time, database as db
 
 POLL_INTERVAL_SECONDS = 0.2
 
+
 class Manager:
     def __init__(self, connected_agents, connected_agents_lock):
         self.connected_agents = connected_agents
         self.connected_agents_lock = connected_agents_lock
+
 
     def activate(self):
         while True:
             self.manage_connected_agents_once()
             time.sleep(POLL_INTERVAL_SECONDS)
 
+
     def manage_connected_agents_once(self):
-        saved_agents_by_id = {
-            saved_agent["agent_id"]: saved_agent
-            for saved_agent in db.get_all_agents()
-        }
+        saved_agents_by_id = {}
+
+        for saved_agent in db.get_all_agents():
+            agent_id = saved_agent["agent_id"]
+            saved_agents_by_id[agent_id] = saved_agent
 
         with self.connected_agents_lock:
             saved_agent_ids = set(saved_agents_by_id)
@@ -28,9 +32,11 @@ class Manager:
 
             for agent_id, agent in list(self.connected_agents.items()):
                 saved_agent = saved_agents_by_id.get(agent_id)
-                requested_status = saved_agent.get("status") if saved_agent else None
+                requested_state = saved_agent.get("agent_state") if saved_agent else None
 
-                if agent.status == "disconnect_requested" or requested_status == "disconnect_requested":
+
+                # Disconnect handling
+                if agent.agent_state == "disconnect_requested" or requested_state == "disconnect_requested":
                     try:
                         agent.conn.close()
                     except Exception:
@@ -40,22 +46,28 @@ class Manager:
                     db.remove_agent(agent_id)
                     continue
 
-                if requested_status == "stop_requested":
-                    if agent.status == "working":
-                        agent.status = "idle"
+
+                # Stop handling
+                if requested_state == "stop_requested":
+                    if agent.agent_state == "working":
+                        agent.agent_state = "idle"
                         agent.task = None
-                        agent.status_msg = "Stopped"
+                        agent.agent_activity_message = "Stopped"
                         agent.save()
 
-                elif requested_status == "clear_requested":
-                    agent.status = "idle"
+
+                # Clear memory handling
+                elif requested_state == "clear_requested":
+                    agent.agent_state = "idle"
                     agent.task = None
                     agent.history = []
-                    agent.status_msg = "Memory cleared"
+                    agent.agent_activity_message = "Memory cleared"
                     agent.save()
-                    db.set_agent_status(agent_id, "idle")
+                    db.set_agent_state(agent_id, "idle")
 
-                if agent.status != "idle":
+
+                # Task assignment
+                if agent.agent_state != "idle":
                     continue
 
                 queued_tasks_for_this_agent = db.get_queued_tasks(agent_id=agent_id)

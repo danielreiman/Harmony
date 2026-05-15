@@ -2,7 +2,7 @@ import base64, hashlib, os, threading, tkinter as tk, customtkinter as ctk
 from datetime import datetime
 from io import BytesIO
 from PIL import Image, ImageDraw, ImageTk
-from bridge import request
+from connection import request
 
 # ── Theme ─────────────────────────────────────────────────────────────────────
 BG         = "#171717"
@@ -36,6 +36,7 @@ AUTH_WINDOW_SIZE = (520, 620)
 TASK_PLACEHOLDER = "What can I do for you?"
 
 
+# Small grey heading shown above a group of items.
 def _section_label(parent, text, **kw):
     return ctk.CTkLabel(parent, text=text, font=(FONT_MONO, 9, "bold"),
                         text_color=MUTED, anchor="w", **kw)
@@ -45,18 +46,22 @@ def _section_label(parent, text, **kw):
 _MAX_LOG = 120
 _LOG_KIND = {"cmd": ("$", GREEN), "action": ("▸", ACCENT), "idle": ("·", MUTED)}
 
+# Keep only the most recent items so the list does not grow forever.
 def _trim_scroll(scroll):
     kids = scroll.winfo_children()
     if len(kids) >= _MAX_LOG:
         for w in kids[:len(kids) - _MAX_LOG + 1]:
             w.destroy()
 
+# Jump the view all the way down so the newest item is showing.
 def _scroll_end(scroll):
     def _go():
         try: scroll._parent_canvas.yview_moveto(1.0)
         except Exception: pass
     scroll.after(50, _go)
 
+# Add one new card to the activity list, showing what the helper just did
+# and why it chose to do it.
 def append_log_entry(scroll, step):
     if not step: return
     action  = step.get("action", "") or ""
@@ -97,6 +102,7 @@ def append_log_entry(scroll, step):
     ctk.CTkFrame(entry, fg_color="transparent", height=10).pack()
     _scroll_end(scroll)
 
+# Add a short note from the app itself (not the helper) to the activity list.
 def append_system_log(scroll, text, color=None):
     if not text: return
     _trim_scroll(scroll)
@@ -109,6 +115,7 @@ def append_system_log(scroll, text, color=None):
 
 
 # ── Read-only textbox ─────────────────────────────────────────────────────────
+# A text area people can read but cannot type into.
 class _ROText(ctk.CTkTextbox):
     def configure(self, require_redraw=False, **kwargs):
         if "text" in kwargs:
@@ -119,6 +126,8 @@ class _ROText(ctk.CTkTextbox):
 
 
 # ── Floating panel builder ────────────────────────────────────────────────────
+# Build a small floating box (like the Tasks or Activity pop-up) with a title,
+# a close button, and a scrolling area inside.
 def _build_panel(app, title, width, height, on_close, count_label_attr=None):
     panel = ctk.CTkFrame(app, fg_color="#242424", corner_radius=18,
                          border_width=1, border_color=BORDER,
@@ -144,6 +153,8 @@ def _build_panel(app, title, width, height, on_close, count_label_attr=None):
     return panel, scroll
 
 # ── Login screen ──────────────────────────────────────────────────────────────
+# Build the sign-in screen where someone types their name and password
+# to enter the app.
 def _build_login(app):
     frame = ctk.CTkFrame(app, fg_color=BG, corner_radius=0)
 
@@ -192,8 +203,12 @@ def _build_login(app):
 
 
 # ── Main application ──────────────────────────────────────────────────────────
+# The whole app. This holds every screen and keeps track of who is signed in,
+# which helper is chosen, and what is happening right now.
 class HarmonyApp(ctk.CTk):
 
+    # Set up the app when it first starts: remember nothing is chosen yet,
+    # build all the screens, and begin checking for news from the server.
     def __init__(self):
         super().__init__()
         self.title("Harmony")
@@ -222,14 +237,16 @@ class HarmonyApp(ctk.CTk):
         self._start_polling_loops()
 
     # ── Window ────────────────────────────────────────────────────────────────
+    # Give the app window its picture in the corner and place it on screen.
     def _setup_window(self):
         try:
-            app_icon = ImageTk.PhotoImage(Image.open("icon.png"))
+            app_icon = ImageTk.PhotoImage(Image.open(os.path.join(os.path.dirname(__file__), "resources", "icon.png")))
             self.wm_iconphoto(False, app_icon)
         except Exception:
             pass
         self._set_centered_window(*AUTH_WINDOW_SIZE)
 
+    # Put a small window right in the middle of the screen.
     def _set_centered_window(self, width, height):
         """Place compact views in the center without hiding the native title bar."""
         self.attributes("-fullscreen", False)
@@ -246,6 +263,7 @@ class HarmonyApp(ctk.CTk):
         y = max(0, (screen_h - height) // 2)
         self.geometry(f"{width}x{height}+{x}+{y}")
 
+    # Make the window cover the whole screen for the main view.
     def _enter_main_fullscreen(self):
         try:
             self.state("normal")
@@ -253,29 +271,36 @@ class HarmonyApp(ctk.CTk):
             pass
         self.attributes("-fullscreen", True)
 
+    # Run a slow piece of work on the side so the app stays smooth.
     def _run_in_background(self, fn, *args):
         threading.Thread(target=fn, args=args, daemon=True).start()
 
+    # Hide every screen and then show only the one we want.
     def _show_frame(self, frame):
         for f in (self.login_frame, self.main_frame):
             try: f.pack_forget()
             except Exception: pass
         frame.pack(fill="both", expand=True)
 
+    # Switch back to the sign-in screen.
     def _show_login_view(self):
         self._set_centered_window(*AUTH_WINDOW_SIZE)
         self._show_frame(self.login_frame)
 
+    # Switch to the big main screen after someone signs in.
     def _show_main_view(self):
         self._enter_main_fullscreen()
         self._show_frame(self.main_frame)
 
     # ── Build views ───────────────────────────────────────────────────────────
+    # Build both the sign-in screen and the main screen, then show sign-in first.
     def _build_all_views(self):
         self.login_frame = _build_login(self)
         self._build_main_view()
         self._show_login_view()
 
+    # Build the whole main screen piece by piece: top bar, middle area,
+    # bottom bar, and the two pop-ups for Tasks and Activity.
     def _build_main_view(self):
         self.main_frame = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         self._build_top_bar()
@@ -287,6 +312,8 @@ class HarmonyApp(ctk.CTk):
         self.logs_panel, self.log_scroll = _build_panel(
             self, "Activity", 350, 430, self._hide_logs_panel, "logs_agent_lbl")
 
+    # Build the strip across the top with the welcome message, the name
+    # of the app, and the sign-out and shut-down buttons.
     def _build_top_bar(self):
         bar = ctk.CTkFrame(self.main_frame, fg_color="transparent", height=82,
                            corner_radius=0, border_width=0)
@@ -339,6 +366,8 @@ class HarmonyApp(ctk.CTk):
             command=lambda: [request({"action": "stop_server"}), self.quit()])
         self.shutdown_button.pack(side="left", padx=4)
 
+    # Build the big middle area that holds the picture of the helper's
+    # screen and the side cards with what it is doing.
     def _build_content_area(self):
         self.content_area = ctk.CTkFrame(self.main_frame, fg_color=BG)
         self.content_area.pack(fill="both", expand=True, padx=22, pady=(22, 236))
@@ -348,6 +377,7 @@ class HarmonyApp(ctk.CTk):
         self._build_screen_stage()
         self._build_floating_state_panel()
 
+    # Set up the area in the middle where the helper's screen picture appears.
     def _build_screen_stage(self):
         self.screen_meta = ctk.CTkLabel(self.screenshot_and_panels, text="")
         self.screen_area = ctk.CTkFrame(self.screenshot_and_panels, fg_color="transparent")
@@ -357,9 +387,15 @@ class HarmonyApp(ctk.CTk):
             text_color=MUTED, font=(FONT, 13))
         self.screenshot_label.place(relx=0.5, rely=0.5, anchor="center")
 
+    # Clear the screen picture while we are waiting for a new one.
     def _show_waiting_screenshot(self):
-        self.screenshot_label.configure(text=" ", image=None)
+        try:
+            self.screenshot_label.configure(text=" ", image=None)
+        except Exception:
+            self.screenshot_label.configure(text=" ")
 
+    # Build the two cards on the right side that show what the helper
+    # is doing right now and the reason it gave for doing it.
     def _build_floating_state_panel(self):
         CARD_W          = 360
         PANEL_BG        = "#282828"
@@ -440,6 +476,8 @@ class HarmonyApp(ctk.CTk):
         "run_command": "Run Command", "wait": "Wait",
     }
 
+    # Turn a raw step from the helper into a short, friendly sentence
+    # that someone can read at a glance.
     def _format_action(self, action, coordinate, value, end_coord=None):
         if not action or str(action).lower() == "none":
             return "—"
@@ -463,6 +501,7 @@ class HarmonyApp(ctk.CTk):
             parts.append(f'"{val}"')
         return " ".join(parts)
 
+    # Build the friendly message that shows up when no helper is chosen yet.
     def _build_empty_state(self):
         self.empty_state_overlay = ctk.CTkFrame(self.screenshot_and_panels, fg_color="transparent")
         ctr = ctk.CTkFrame(self.empty_state_overlay, fg_color="transparent")
@@ -475,6 +514,8 @@ class HarmonyApp(ctk.CTk):
             font=(FONT, 13), text_color=DIM)
         self.empty_state_subtitle.pack()
 
+    # Build the strip across the bottom: the toolbar buttons, the
+    # current-task ribbon, and the box for typing a new request.
     def _build_bottom_bar(self):
         wrap = ctk.CTkFrame(self.main_frame, fg_color="transparent", width=884)
         wrap.place(relx=0.5, rely=1.0, y=-20, anchor="s")
@@ -623,6 +664,7 @@ class HarmonyApp(ctk.CTk):
         self._apply_task_display()
 
     # ── Authentication ────────────────────────────────────────────────────────
+    # Remember who signed in and put their name in the welcome greeting.
     def _set_current_user(self, username):
         self.current_username = username.strip() or "User"
         shown_name = self.current_username
@@ -630,6 +672,8 @@ class HarmonyApp(ctk.CTk):
             shown_name = shown_name[:14].rstrip() + "…"
         self.welcome_label.configure(text=f"Good to see you {shown_name}")
 
+    # Try to sign someone in or make a new account using the name and
+    # password they typed. Show a friendly message if something is wrong.
     def _authenticate(self, action):
         username = self.login_user.get()
         password = self.login_pass.get()
@@ -653,6 +697,7 @@ class HarmonyApp(ctk.CTk):
         self._run_in_background(background)
 
     # ── Agent actions ─────────────────────────────────────────────────────────
+    # Politely tell the chosen helper to leave, and forget about it.
     def _disconnect_current_agent(self):
         if not self.selected_agent: return
         agent_id = self.selected_agent
@@ -663,6 +708,7 @@ class HarmonyApp(ctk.CTk):
         self._on_agent_selection_changed(None)
         self._run_in_background(self._fetch_agents_from_server)
 
+    # Ask the chosen helper to forget what it has been doing and start fresh.
     def _reset_current_agent(self):
         if not self.selected_agent: return
         agent_id = self.selected_agent
@@ -674,6 +720,8 @@ class HarmonyApp(ctk.CTk):
         self.reasoning_textbox.configure(text="—")
         self._set_task_text("No active task")
 
+    # Someone picked a different helper from the drop-down. Clear the
+    # old picture and notes, and start showing what the new helper is doing.
     def _on_agent_selection_changed(self, chosen_value):
         previous_agent = self.selected_agent
         if chosen_value and chosen_value != "No agents":
@@ -698,14 +746,19 @@ class HarmonyApp(ctk.CTk):
             self._write_system_log(f"Switched to {self.selected_agent}")
             self.logs_agent_lbl.configure(text=self.selected_agent)
 
+    # Change the words shown in the "Current Task" ribbon.
     def _set_task_text(self, text):
         self._full_task_text = text or "No active task"
         self._apply_task_display()
 
+    # Flip between showing a short version and the full version of the
+    # current task line when someone clicks "Show more" or "Show less".
     def _toggle_task_expand(self):
         self._is_task_expanded = not self._is_task_expanded
         self._apply_task_display()
 
+    # Actually draw the current task line, either short or full,
+    # and grow the ribbon taller if there is more to show.
     def _apply_task_display(self):
         TRUNC = 90
         min_h = self._strip_min_h
@@ -738,6 +791,8 @@ class HarmonyApp(ctk.CTk):
             self.strip_toggle.place_forget()
 
     # ── Connection status ─────────────────────────────────────────────────────
+    # Notice when the link to the server comes back or goes away,
+    # and write a short note about it in the activity list.
     def _update_connection_status(self, is_connected):
         if is_connected == self._is_server_connected: return
         self._is_server_connected = is_connected
@@ -746,18 +801,20 @@ class HarmonyApp(ctk.CTk):
         else:
             self._write_system_log("Lost server connection", RED)
 
+    # Add a short note from the app into the activity list.
     def _write_system_log(self, message, color=None):
         self.after(0, lambda: append_system_log(self.log_scroll, message, color))
 
     # ── Server data ───────────────────────────────────────────────────────────
+    # Ask the server for the list of helpers and update the drop-down.
     def _fetch_agents_from_server(self):
         response = request({"action": "get_agents"})
         self.after(0, lambda: self._update_connection_status("agents" in response))
 
-        hidden_statuses = {"disconnected", "disconnect_requested"}
+        hidden_states = {"disconnected", "disconnect_requested"}
         agents = [
             agent for agent in response.get("agents", [])
-            if agent.get("status", "idle") not in hidden_statuses
+            if agent.get("agent_state", "idle") not in hidden_states
         ]
         agent_ids = [a["id"] for a in agents]
         if agent_ids == self._known_agent_ids and agents == self._known_agents: return
@@ -766,7 +823,7 @@ class HarmonyApp(ctk.CTk):
 
         def update_dropdown():
             display_values = [
-                f"{a['id']}  [{AGENT_STATUS_LABELS.get(a.get('status','idle'), a.get('status','idle'))}]"
+                f"{a['id']}  [{AGENT_STATUS_LABELS.get(a.get('agent_state','idle'), a.get('agent_state','idle'))}]"
                 for a in agents
             ] or ["No agents"]
             self.agent_dropdown.configure(values=display_values)
@@ -776,9 +833,9 @@ class HarmonyApp(ctk.CTk):
             elif self.selected_agent:
                 if self.selected_agent in agent_ids:
                     self.agent_dropdown.set(display_values[agent_ids.index(self.selected_agent)])
-                    status = agents[agent_ids.index(self.selected_agent)].get("status", "idle")
-                    self._prev_agent_status = status
-                    self._set_send_button_working(status == "working")
+                    agent_state = agents[agent_ids.index(self.selected_agent)].get("agent_state", "idle")
+                    self._prev_agent_status = agent_state
+                    self._set_send_button_working(agent_state == "working")
                     self._sync_agent_summary()
                 else:
                     fallback = display_values[0] if agent_ids else "No agents"
@@ -786,16 +843,21 @@ class HarmonyApp(ctk.CTk):
                     self._on_agent_selection_changed(fallback if agent_ids else None)
         self.after(0, update_dropdown)
 
+    # Look up whether a helper is busy, resting, or stopping.
     def _status_for_agent(self, agent_id):
         for agent in self._known_agents:
             if agent.get("id") == agent_id:
-                return agent.get("status", "idle")
+                return agent.get("agent_state", "idle")
         return ""
 
+    # Remember whether the helper is busy and update the round button
+    # so it shows either a play arrow or a stop square.
     def _set_send_button_working(self, is_working):
         self.is_agent_working = is_working
         self._sync_send_button_visual()
 
+    # Paint the round button in the right color and shape based on
+    # whether the helper is busy and whether the mouse is over it.
     def _sync_send_button_visual(self, hover=False):
         if not hasattr(self, "send_stop_button"):
             return
@@ -814,6 +876,8 @@ class HarmonyApp(ctk.CTk):
             self.send_stop_button.itemconfig(
                 self.send_stop_play, state="normal", fill="#1f1f1f")
 
+    # If there is something typed, send it as a new request to the helper.
+    # If the box is empty and the helper is busy, ask the helper to stop.
     def _send_task_or_stop_agent(self):
         if self.is_task_send_pending:
             return
@@ -859,27 +923,32 @@ class HarmonyApp(ctk.CTk):
         self._run_in_background(background)
 
     # ── Button visibility ─────────────────────────────────────────────────────
+    # Hide the "Disconnect" button.
     def _hide_disconnect_button(self):
         if self._is_disconnect_visible:
             self.disconnect_button.pack_forget()
             self._is_disconnect_visible = False
 
+    # Show the "Disconnect" button.
     def _show_disconnect_button(self):
         if not self._is_disconnect_visible:
             self.disconnect_button.pack(side="right", padx=(12, 0))
             self._is_disconnect_visible = True
 
+    # Hide the "Clear Memory" button.
     def _hide_reset_button(self):
         if self._is_reset_visible:
             self.reset_memory_button.pack_forget()
             self._is_reset_visible = False
 
+    # Show the "Clear Memory" button.
     def _show_reset_button(self):
         if not self._is_reset_visible:
             self.reset_memory_button.pack(side="right", padx=(12, 0))
             self._is_reset_visible = True
 
     # ── View refresh ──────────────────────────────────────────────────────────
+    # Keep the little name and status tag in step with the chosen helper.
     def _sync_agent_summary(self):
         if not self.selected_agent:
             self.selected_agent_title.configure(text="No agent selected")
@@ -893,6 +962,8 @@ class HarmonyApp(ctk.CTk):
         self.status_chip.configure(fg_color=fill)
         self.status_chip_label.configure(text=status, text_color=color)
 
+    # Decide what the main area should look like: a friendly empty message,
+    # a "waiting" message, or the helper's screen picture.
     def _refresh_view_for_current_agent(self):
         if not self.selected_agent:
             self._show_waiting_screenshot()
@@ -918,16 +989,21 @@ class HarmonyApp(ctk.CTk):
         self._sync_agent_summary()
 
     # ── Polling loops ─────────────────────────────────────────────────────────
+    # Begin the three little timers that keep checking the server for
+    # the list of helpers, the helper's current status, and the screen picture.
     def _start_polling_loops(self):
         self._poll_agents_loop()
         self._poll_agent_status_loop()
         self._poll_screenshot_loop()
 
+    # Every few seconds, ask the server who is around.
     def _poll_agents_loop(self):
         if self.user_id:
             self._run_in_background(self._fetch_agents_from_server)
         self.after(3000, self._poll_agents_loop)
 
+    # Every short while, ask the helper for a fresh picture of its screen,
+    # shrink it to fit, give it rounded corners, and show it.
     def _poll_screenshot_loop(self):
         if self.selected_agent:
             agent_id = self.selected_agent
@@ -963,6 +1039,8 @@ class HarmonyApp(ctk.CTk):
             self.after(0, self._refresh_view_for_current_agent)
         self.after(800 if self.is_agent_working else 2000, self._poll_screenshot_loop)
 
+    # Every half second or so, ask the helper what step it is on and what
+    # it is thinking, then update the side cards and activity list.
     def _poll_agent_status_loop(self):
         if self.selected_agent:
             def background(agent_id):
@@ -970,14 +1048,14 @@ class HarmonyApp(ctk.CTk):
                 if agent_id != self.selected_agent:
                     return
                 step_data      = data.get("step") or {}
-                action_text    = step_data.get("action", "").strip()
-                reasoning_text = step_data.get("reasoning", "").strip()
+                action_text    = (step_data.get("action") or "").strip()
+                reasoning_text = (step_data.get("reasoning") or "").strip()
                 coordinate     = step_data.get("coordinate")
                 value          = step_data.get("value")
                 cmd_output     = step_data.get("cmd_output")
                 current_task   = data.get("current_task") or data.get("task") or ""
-                agent_status   = data.get("status", "")
-                status_message = data.get("status_text", "") or ""
+                agent_status   = data.get("agent_state", "")
+                status_message = data.get("agent_activity_message", "") or ""
 
                 if agent_status != self._prev_agent_status:
                     old = self._prev_agent_status
@@ -1025,14 +1103,17 @@ class HarmonyApp(ctk.CTk):
         self.after(500, self._poll_agent_status_loop)
 
     # ── Floating panels ───────────────────────────────────────────────────────
+    # Hide the floating Activity pop-up.
     def _hide_logs_panel(self):
         self.logs_panel.place_forget(); self.logs_panel.lower()
         self.is_logs_panel_open = False
 
+    # Hide the floating Tasks pop-up.
     def _hide_tasks_panel(self):
         self.tasks_panel.place_forget(); self.tasks_panel.lower()
         self.is_tasks_panel_open = False
 
+    # Float a pop-up just above a chosen button so it points at it.
     def _place_panel_above(self, panel, anchor_widget):
         self.update_idletasks()
         panel.update_idletasks()
@@ -1046,12 +1127,14 @@ class HarmonyApp(ctk.CTk):
         y = max(82, y)
         panel.place(x=x, y=y, anchor="sw")
 
+    # Open the Activity pop-up if it is closed, or close it if it is open.
     def _toggle_logs_panel(self):
         if self.is_logs_panel_open: self._hide_logs_panel()
         else:
             self._place_panel_above(self.logs_panel, self.logs_toggle_button)
             self.logs_panel.lift(); self.is_logs_panel_open = True
 
+    # Open the Tasks pop-up if it is closed, or close it if it is open.
     def _toggle_tasks_panel(self):
         if self.is_tasks_panel_open: self._hide_tasks_panel()
         else:
@@ -1059,6 +1142,8 @@ class HarmonyApp(ctk.CTk):
             self._place_panel_above(self.tasks_panel, self.tasks_toggle_button)
             self.tasks_panel.lift(); self.is_tasks_panel_open = True
 
+    # Ask the server for the latest list of requests this person has saved,
+    # then draw them in the Tasks pop-up.
     def _refresh_task_list(self):
         for w in self.tasks_scroll.winfo_children(): w.destroy()
         ctk.CTkLabel(self.tasks_scroll, text="Loading…", text_color=DIM,
@@ -1069,6 +1154,7 @@ class HarmonyApp(ctk.CTk):
             self.after(0, lambda: self._render_task_rows(tasks))
         self._run_in_background(background)
 
+    # Draw each saved request as its own little card with a delete button.
     def _render_task_rows(self, tasks):
         for w in self.tasks_scroll.winfo_children(): w.destroy()
         self.tasks_cnt.configure(text=f"({len(tasks)})" if tasks else "")
