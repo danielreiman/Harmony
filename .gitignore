@@ -1,7 +1,14 @@
 __pycache__/
 *.pyc
 .DS_Store
+.env
 server/.env
-server/harmony.db
-server/server_key.pem
 server/runtime/
+book_v16.docx
+
+# Generated keys and databases
+server/resources/server_key.pem
+server/gateway/resources/server_keys.bin
+server/gateway/resources/harmony.db
+server/gateway/resources/harmony.db-shm
+server/gateway/resources/harmony.db-wal
