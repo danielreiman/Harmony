@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.dirname(_here))
 sys.path.insert(0, os.path.join(_here, "agents"))
 sys.path.insert(0, os.path.join(_here, "gateway"))
 
-from config import RUNTIME_DIR
+from config import RUNTIME_DIR, AI_MODEL
 from discovery import broadcast
 from names import pick_agent_name
 from keys import load_keys
@@ -18,7 +18,6 @@ from database import init_db, register_agent, get_all_agents
 HOST = "0.0.0.0"
 AGENT_PORT = 1222
 GATEWAY_PORT = 1223
-AI_MODEL = "ministral-3:14b-cloud"
 
 
 def main():
