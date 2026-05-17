@@ -275,6 +275,18 @@ class HarmonyApp(ctk.CTk):
     def _run_in_background(self, fn, *args):
         threading.Thread(target=fn, args=args, daemon=True).start()
 
+    # Load small UI images once and keep them alive for CustomTkinter labels.
+    def _resource_image(self, filename, size):
+        if "_resource_image_cache" not in self.__dict__:
+            self._resource_image_cache = {}
+        key = (filename, size)
+        if key not in self._resource_image_cache:
+            path = os.path.join(os.path.dirname(__file__), "resources", filename)
+            image = Image.open(path)
+            self._resource_image_cache[key] = ctk.CTkImage(
+                light_image=image, dark_image=image, size=size)
+        return self._resource_image_cache[key]
+
     # Hide every screen and then show only the one we want.
     def _show_frame(self, frame):
         for f in (self.login_frame, self.main_frame):
@@ -331,13 +343,12 @@ class HarmonyApp(ctk.CTk):
         welcome_capsule.pack(side="left")
         welcome_capsule.pack_propagate(False)
 
-        welcome_row = ctk.CTkFrame(welcome_capsule, fg_color="transparent")
-        welcome_row.place(relx=0.5, rely=0.5, anchor="center")
-        ctk.CTkLabel(welcome_row, text="👋", font=(FONT, 13),
-                     text_color="#f4f4f4").pack(side="left", padx=(0, 8))
-        self.welcome_label = ctk.CTkLabel(welcome_row, text="Good to see you",
-            font=(FONT, 13, "bold"), text_color="#f4f4f4")
-        self.welcome_label.pack(side="left")
+        self.welcome_label = ctk.CTkLabel(welcome_capsule,
+            text="  Good to see you",
+            image=self._resource_image("wave_emoji.png", (24, 19)),
+            compound="left", font=(FONT, 13, "bold"),
+            text_color="#f4f4f4", height=24)
+        self.welcome_label.place(relx=0.5, rely=0.5, anchor="center")
 
         title_capsule = ctk.CTkFrame(top_row, width=110, **capsule_style)
         title_capsule.place(relx=0.5, rely=0.5, anchor="center")
@@ -388,11 +399,16 @@ class HarmonyApp(ctk.CTk):
         self.screenshot_label.place(relx=0.5, rely=0.5, anchor="center")
 
     # Clear the screen picture while we are waiting for a new one.
+    # We never pass image=None to a CTkLabel — CustomTkinter doesn't fully
+    # clear the inner tk.Label's image option, which leaves a dangling
+    # pyimage reference and crashes on the next configure(). Instead we
+    # tell the label to display only the text, leaving the image option
+    # untouched (the empty-state overlay covers anything still drawn).
     def _show_waiting_screenshot(self):
         try:
-            self.screenshot_label.configure(text=" ", image=None)
-        except Exception:
             self.screenshot_label.configure(text=" ")
+        except Exception:
+            pass
 
     # Build the two cards on the right side that show what the helper
     # is doing right now and the reason it gave for doing it.
@@ -407,9 +423,9 @@ class HarmonyApp(ctk.CTk):
         CARD_PAD_X      = 22
         CARD_PAD_Y      = 22
         LABEL_GAP       = 10
-        LABEL_FONT      = (FONT_MONO, 11, "bold")
+        LABEL_FONT      = (FONT_MONO, 13, "bold")
         HEADLINE_FONT   = (FONT, 22, "bold")
-        BODY_FONT       = (FONT, 14)
+        BODY_FONT       = (FONT, 16)
         BODY_COLOR      = "#c9c9ce"
         WRAP            = CARD_W - CARD_PAD_X * 2
 
@@ -439,10 +455,26 @@ class HarmonyApp(ctk.CTk):
         ctk.CTkLabel(action_card, text="ACTION", font=LABEL_FONT,
             text_color="#6a6a70", anchor="w").pack(
             fill="x", padx=CARD_PAD_X, pady=(CARD_PAD_Y, LABEL_GAP), anchor="w")
-        self.action_textbox = ctk.CTkLabel(action_card, text="—",
+        self.action_row = ctk.CTkFrame(action_card, fg_color="transparent")
+        self.action_row.pack(fill="x", padx=CARD_PAD_X, pady=(0, CARD_PAD_Y))
+        self.action_done_icon = self._resource_image("confeti_emoji.png", (38, 38))
+        self.action_icon_label = ctk.CTkLabel(self.action_row, text="",
+            image=self.action_done_icon, width=38, height=38)
+        self.action_textbox = ctk.CTkLabel(self.action_row, text="—",
             font=HEADLINE_FONT, text_color=PANEL_BG, anchor="w",
             justify="left", wraplength=WRAP)
-        self.action_textbox.pack(fill="x", padx=CARD_PAD_X, pady=(0, CARD_PAD_Y))
+        self.action_textbox.pack(side="left")
+        self.action_meta_label = ctk.CTkLabel(self.action_row, text="",
+            font=HEADLINE_FONT, text_color="#8a8a90", anchor="w",
+            justify="left")
+        self.action_meta_label.pack(side="left", padx=(10, 0))
+
+        self.action_command_block = ctk.CTkFrame(action_card, fg_color="#dedee2",
+            corner_radius=8)
+        self.action_command_label = ctk.CTkLabel(self.action_command_block, text="",
+            font=(FONT_MONO, 12), text_color="#313136", anchor="w",
+            justify="left", wraplength=WRAP - 20)
+        self.action_command_label.pack(fill="x", padx=10, pady=8, anchor="w")
 
         # REASONING card — dark background
         reason_card = ctk.CTkFrame(self.info_cards_container,
@@ -456,11 +488,15 @@ class HarmonyApp(ctk.CTk):
         ctk.CTkLabel(reason_card, text="REASONING", font=LABEL_FONT,
             text_color="#7a7a80", anchor="w").pack(
             fill="x", padx=CARD_PAD_X, pady=(CARD_PAD_Y, LABEL_GAP), anchor="w")
-        self.reasoning_textbox = ctk.CTkLabel(reason_card, text="—",
-            font=BODY_FONT, text_color=BODY_COLOR, anchor="nw",
-            justify="left", wraplength=WRAP)
+        self.reasoning_textbox = ctk.CTkTextbox(reason_card,
+            font=BODY_FONT, text_color=BODY_COLOR,
+            fg_color=PANEL_BG, border_width=0,
+            wrap="word", height=110, activate_scrollbars=True)
         self.reasoning_textbox.pack(fill="x",
-            padx=CARD_PAD_X, pady=(0, CARD_PAD_Y), anchor="nw")
+            padx=(CARD_PAD_X - 6, CARD_PAD_X), pady=(0, CARD_PAD_Y), anchor="nw")
+        self.reasoning_textbox._textbox.configure(spacing2=6, padx=0, pady=0)
+        self.reasoning_textbox.insert("1.0", "—")
+        self.reasoning_textbox.configure(state="disabled")
 
         # Removed from this panel — kept as hidden stubs so other code can
         # still call .configure on them without errors.
@@ -478,28 +514,65 @@ class HarmonyApp(ctk.CTk):
 
     # Turn a raw step from the helper into a short, friendly sentence
     # that someone can read at a glance.
+    def _format_coord(self, coordinate):
+        try:
+            x, y = coordinate[0], coordinate[1]
+            return f"({int(x)}, {int(y)})"
+        except Exception:
+            return str(coordinate)
+
+    def _format_key_value(self, value):
+        if isinstance(value, (list, tuple)):
+            return " + ".join(str(v).title() for v in value)
+        return str(value).title()
+
     def _format_action(self, action, coordinate, value, end_coord=None):
         if not action or str(action).lower() == "none":
-            return "—"
-        pretty = self._ACTION_LABELS.get(str(action).lower(), str(action).replace("_", " ").title())
-        parts = [pretty]
+            return "—", "", ""
+
+        action_key = str(action).lower()
+        pretty = self._ACTION_LABELS.get(action_key, str(action).replace("_", " ").title())
+        meta = ""
+        command = ""
+
         if coordinate:
-            try:
-                x, y = coordinate[0], coordinate[1]
-                parts.append(f"[{int(x)}, {int(y)}]")
-            except Exception:
-                parts.append(str(coordinate))
-        if end_coord:
-            try:
-                x, y = end_coord[0], end_coord[1]
-                parts.append(f"→ [{int(x)}, {int(y)}]")
-            except Exception:
-                pass
-        if value is not None and value != "":
-            val = str(value)
-            if len(val) > 48: val = val[:45] + "…"
-            parts.append(f'"{val}"')
-        return " ".join(parts)
+            meta = self._format_coord(coordinate)
+            if end_coord:
+                meta = f"{meta} -> {self._format_coord(end_coord)}"
+        elif action_key in ("press_key", "hotkey") and value not in (None, ""):
+            meta = self._format_key_value(value)
+        elif action_key == "wait" and value not in (None, ""):
+            meta = f"{value}s"
+
+        if action_key == "run_command" and value not in (None, ""):
+            command = str(value)
+
+        return pretty, meta, command
+
+    def _set_reasoning_text(self, text):
+        self.reasoning_textbox.configure(state="normal")
+        self.reasoning_textbox.delete("1.0", "end")
+        self.reasoning_textbox.insert("1.0", text)
+        self.reasoning_textbox.configure(state="disabled")
+
+    def _set_action_display(self, action, meta="", command="", icon=None):
+        if icon:
+            self.action_icon_label.configure(image=icon)
+            self.action_icon_label.pack(
+                side="left", padx=(0, 10), pady=(0, 0), before=self.action_textbox)
+        else:
+            self.action_icon_label.pack_forget()
+        self.action_textbox.configure(text=action or "—")
+        self.action_meta_label.configure(text=meta or "")
+
+        if command:
+            self.action_command_label.configure(text=command)
+            self.action_row.pack_configure(pady=(0, 10))
+            self.action_command_block.pack(
+                fill="x", padx=22, pady=(0, 22), after=self.action_row)
+        else:
+            self.action_command_block.pack_forget()
+            self.action_row.pack_configure(pady=(0, 22))
 
     # Build the friendly message that shows up when no helper is chosen yet.
     def _build_empty_state(self):
@@ -670,7 +743,7 @@ class HarmonyApp(ctk.CTk):
         shown_name = self.current_username
         if len(shown_name) > 15:
             shown_name = shown_name[:14].rstrip() + "…"
-        self.welcome_label.configure(text=f"Good to see you {shown_name}")
+        self.welcome_label.configure(text=f"  Good to see you {shown_name}")
 
     # Try to sign someone in or make a new account using the name and
     # password they typed. Show a friendly message if something is wrong.
@@ -716,8 +789,8 @@ class HarmonyApp(ctk.CTk):
         self._run_in_background(
             lambda: request({"action": "clear_agent", "agent_id": agent_id}))
         for widget in self.log_scroll.winfo_children(): widget.destroy()
-        self.action_textbox.configure(text="—")
-        self.reasoning_textbox.configure(text="—")
+        self._set_action_display("—")
+        self._set_reasoning_text("—")
         self._set_task_text("No active task")
 
     # Someone picked a different helper from the drop-down. Clear the
@@ -734,6 +807,8 @@ class HarmonyApp(ctk.CTk):
             self._show_waiting_screenshot()
 
         for widget in self.log_scroll.winfo_children(): widget.destroy()
+        self._set_action_display("—")
+        self._set_reasoning_text("—")
         self._prev_step_hash = self._prev_log_hash = None
         self._prev_status_message = self._prev_agent_status = ""
         next_status = self._status_for_agent(self.selected_agent) if self.selected_agent else ""
@@ -876,6 +951,28 @@ class HarmonyApp(ctk.CTk):
             self.send_stop_button.itemconfig(
                 self.send_stop_play, state="normal", fill="#1f1f1f")
 
+    # Clear an entry and immediately restore its focus + text color, so
+    # CustomTkinter's placeholder state machine doesn't paint the next
+    # typed characters in the grey placeholder color.
+    def _clear_entry(self, entry, text_color=TEXT):
+        try:
+            entry.delete(0, "end")
+            entry.focus_set()
+            entry.configure(text_color=text_color)
+        except Exception:
+            pass
+
+    # Briefly flash the prompt box's border to signal a problem, without
+    # ever mutating the entry's placeholder_text (which is what causes the
+    # grey-text-after-stop bug).
+    def _flash_prompt_warning(self, message):
+        self._write_system_log(message, AMBER)
+        try:
+            self.prompt_box.configure(border_color=AMBER)
+            self.after(900, lambda: self.prompt_box.configure(border_color="#343434"))
+        except Exception:
+            pass
+
     # If there is something typed, send it as a new request to the helper.
     # If the box is empty and the helper is busy, ask the helper to stop.
     def _send_task_or_stop_agent(self):
@@ -883,9 +980,7 @@ class HarmonyApp(ctk.CTk):
             return
         task_text = self.task_input.get().strip()
         if not self.selected_agent:
-            self.task_input.configure(placeholder_text="Select an agent first")
-            self.after(1400, lambda: self.task_input.configure(
-                placeholder_text=TASK_PLACEHOLDER))
+            self._flash_prompt_warning("Select an agent first")
             return
         if not task_text:
             if self.is_agent_working:
@@ -894,14 +989,12 @@ class HarmonyApp(ctk.CTk):
                 self._run_in_background(lambda: request(
                     {"action": "stop_agent", "agent_id": agent_id}))
                 return
-            self.task_input.configure(placeholder_text="Describe a command first")
-            self.after(1400, lambda: self.task_input.configure(
-                placeholder_text=TASK_PLACEHOLDER))
+            self._flash_prompt_warning("Describe a command first")
             return
 
         agent_id = self.selected_agent
         self.is_task_send_pending = True
-        self.task_input.delete(0, "end")
+        self._clear_entry(self.task_input)
         self._sync_send_button_visual()
 
         def background():
@@ -916,7 +1009,9 @@ class HarmonyApp(ctk.CTk):
                 else:
                     self._write_system_log(
                         response.get("error") or "Failed to send task", RED)
+                # Keep focus + normal color so the next typing is white.
                 self.task_input.focus_set()
+                self.task_input.configure(text_color=TEXT)
                 self._sync_send_button_visual()
 
             self.after(0, on_done)
@@ -1018,15 +1113,27 @@ class HarmonyApp(ctk.CTk):
                 fw, fh = int(screenshot.width * scale), int(screenshot.height * scale)
                 screenshot = screenshot.resize((fw, fh), Image.LANCZOS)
                 mask = Image.new("L", (fw, fh), 0)
-                ImageDraw.Draw(mask).rounded_rectangle([(0,0),(fw-1,fh-1)], radius=12, fill=255)
+                ImageDraw.Draw(mask).rounded_rectangle([(0,0),(fw-1,fh-1)], radius=22, fill=255)
                 screenshot.putalpha(mask)
 
                 def apply():
                     if agent_id != self.selected_agent:
                         return
-                    self._current_screenshot = ctk.CTkImage(
+                    new_image = ctk.CTkImage(
                         light_image=screenshot, dark_image=screenshot, size=(fw, fh))
-                    self.screenshot_label.configure(text="", image=self._current_screenshot)
+                    # Keep a few recent images alive so their underlying Tk
+                    # pyimages don't get garbage-collected while still in use
+                    # by the inner tk.Label.
+                    if not hasattr(self, "_screenshot_refs"):
+                        self._screenshot_refs = []
+                    self._screenshot_refs.append(new_image)
+                    if len(self._screenshot_refs) > 4:
+                        self._screenshot_refs = self._screenshot_refs[-4:]
+                    self._current_screenshot = new_image
+                    try:
+                        self.screenshot_label.configure(text="", image=new_image)
+                    except Exception:
+                        return
                     self._refresh_view_for_current_agent()
                 self.after(0, apply)
 
@@ -1050,8 +1157,8 @@ class HarmonyApp(ctk.CTk):
                 step_data      = data.get("step") or {}
                 action_text    = (step_data.get("action") or "").strip()
                 reasoning_text = (step_data.get("reasoning") or "").strip()
-                coordinate     = step_data.get("coordinate")
-                value          = step_data.get("value")
+                coordinate     = step_data.get("coordinate") or step_data.get("Coordinate")
+                value          = step_data.get("value") or step_data.get("Value")
                 cmd_output     = step_data.get("cmd_output")
                 current_task   = data.get("current_task") or data.get("task") or ""
                 agent_status   = data.get("agent_state", "")
@@ -1082,15 +1189,21 @@ class HarmonyApp(ctk.CTk):
                 if fp != self._prev_step_hash:
                     self._prev_step_hash = fp
                     end_coord = step_data.get("end_coordinate") or step_data.get("EndCoordinate")
-                    is_done = (agent_status == "idle" and
-                               (not action_text or action_text.lower() in ("none", "")))
-                    primary = "🎉 Done!" if is_done else \
-                              self._format_action(action_text, coordinate, value, end_coord)
+                    action_key = action_text.lower()
+                    is_done = (action_key == "done" or
+                               (agent_status == "idle" and action_key in ("none", "")))
+                    if is_done:
+                        primary, meta, command, icon = "Done!", "", "", self.action_done_icon
+                    else:
+                        primary, meta, command = self._format_action(
+                            action_text, coordinate, value, end_coord)
+                        icon = None
                     disp_reasoning = reasoning_text or "—"
                     disp_task = current_task or "No active task"
 
-                    self.after(0, lambda a=primary: self.action_textbox.configure(text=a))
-                    self.after(0, lambda r=disp_reasoning: self.reasoning_textbox.configure(text=r))
+                    self.after(0, lambda a=primary, m=meta, c=command, i=icon:
+                               self._set_action_display(a, m, c, i))
+                    self.after(0, lambda r=disp_reasoning: self._set_reasoning_text(r))
                     self.after(0, lambda t=disp_task: self._set_task_text(t))
 
                 lf = hashlib.md5(f"{action_text}|{reasoning_text}".encode()).hexdigest()
