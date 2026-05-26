@@ -132,7 +132,14 @@ def get_task(task_id):
     return fetch_one_row("SELECT * FROM tasks WHERE id = ?", (task_id,))
 
 
-def mark_task_done(task_id):
+def mark_task_done(task_id, result=None):
+    task = get_task(task_id)
+    if result and task and task["task"].startswith("Research Council |"):
+        execute_and_commit(
+            "UPDATE tasks SET status = 'done', task = task || ? WHERE id = ?",
+            (f"\n\nAgent result:\n{result}", task_id))
+        return
+
     execute_and_commit("UPDATE tasks SET status = 'done' WHERE id = ?", (task_id,))
 
 
