@@ -1,6 +1,15 @@
 import base64, json, os, shutil, signal, threading, time, database as db
 from config import RUNTIME_DIR
 
+RESEARCH_SECTIONS = [
+    "overview",
+    "benefits",
+    "risks",
+    "real-world examples",
+    "future direction",
+    "recommendations",
+]
+
 
 def handle_get_agents():
     agents = []
@@ -66,6 +75,66 @@ def handle_disconnect_agent(agent_id):
     return {"success": True}
 
 
+def parse_research_command(task_text):
+    text = task_text.strip()
+    lower = text.lower()
+    if not lower.startswith("research(") or "):" not in text:
+        return None
+
+    research_id = text[text.find("(") + 1:text.find("):")].strip()
+    topic = text.split("):", 1)[1].strip()
+    if not research_id or not topic:
+        return None
+
+    return research_id, topic
+
+
+def research_prompt(research_id, topic, section, agent_id):
+    return f"""Research({research_id}) | {section}
+Topic: {topic}
+Agent: {agent_id}
+
+Research only your assigned section: {section}.
+When finished, use the Done message with this exact simple structure:
+
+Research ID: {research_id}
+Section: {section}
+Paragraph:
+<one clear paragraph with your findings>
+Sources:
+- <source 1>
+- <source 2>
+Takeaway:
+<one sentence summary>"""
+
+
+def handle_research_task(task_text, user_id):
+    parsed = parse_research_command(task_text)
+    if not parsed:
+        return None
+
+    research_id, topic = parsed
+    agents = [
+        a for a in db.get_all_agents()
+        if a.get("agent_state", "idle") in ("idle", "working")
+    ]
+    if not agents:
+        return {"error": "No available agents"}
+
+    for index, agent in enumerate(agents):
+        section = RESEARCH_SECTIONS[index % len(RESEARCH_SECTIONS)]
+        db.add_task(
+            research_prompt(research_id, topic, section, agent["agent_id"]),
+            user_id=user_id,
+            agent_id=agent["agent_id"],
+        )
+
+    return {
+        "success": True,
+        "message": f"Research {research_id} started with {len(agents)} agents",
+    }
+
+
 def handle_send_task(request):
     task_text = request.get("task", "").strip()
     agent_id = request.get("agent_id")
@@ -73,6 +142,10 @@ def handle_send_task(request):
 
     if not task_text:
         return {"error": "Task is required"}
+
+    research_response = handle_research_task(task_text, user_id)
+    if research_response:
+        return research_response
 
     if not agent_id:
         db.add_task(task_text, user_id=user_id)
