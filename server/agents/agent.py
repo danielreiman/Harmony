@@ -304,7 +304,7 @@ class Agent:
                 self.agent_activity_message = "Done"
                 if self.task_id:
                     try:
-                        db.mark_task_done(self.task_id, step.tool_call.message)
+                        db.mark_task_done(self.task_id)
                     except Exception as error:
                         print(f"[Agent {self.id}] Task finish error: {error}")
                 self.save()
