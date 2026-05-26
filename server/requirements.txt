@@ -4,3 +4,4 @@ cryptography
 python-dotenv
 python-cfonts
 Pillow
+reportlab
