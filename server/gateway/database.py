@@ -3,7 +3,6 @@ import hashlib, os, sqlite3, threading, time
 
 DATABASE_FILE_PATH = os.path.join(os.path.dirname(__file__), "resources", "harmony.db")
 _local = threading.local()  # each worker gets its own link to the database
-RESULT_MARKER = "\n\nAgent result:\n"
 
 
 def get_connection():
@@ -133,125 +132,7 @@ def get_task(task_id):
     return fetch_one_row("SELECT * FROM tasks WHERE id = ?", (task_id,))
 
 
-def _parse_research_task(text):
-    lines = (text or "").splitlines()
-    if not lines or not lines[0].startswith("Research(") or ") |" not in lines[0]:
-        return None
-
-    research_id = lines[0].split("Research(", 1)[1].split(")", 1)[0].strip()
-    section = lines[0].split("|", 1)[1].strip()
-    topic = ""
-    for line in lines:
-        if line.startswith("Topic:"):
-            topic = line.split(":", 1)[1].strip()
-            break
-
-    result = text.split(RESULT_MARKER, 1)[1].strip() if RESULT_MARKER in text else ""
-    return {"id": research_id, "section": section, "topic": topic, "result": result}
-
-
-def _field(text, label):
-    labels = ("Research ID", "Section", "Paragraph", "Sources", "Takeaway")
-    out, collecting = [], False
-    for line in (text or "").splitlines():
-        clean = line.strip()
-        if clean.lower().startswith(label.lower() + ":"):
-            collecting = True
-            first = line.split(":", 1)[1].strip()
-            if first:
-                out.append(first)
-            continue
-        if collecting and any(clean.lower().startswith(x.lower() + ":") for x in labels):
-            break
-        if collecting and clean:
-            out.append(clean)
-    return "\n".join(out).strip()
-
-
-def _write_pdf(path, lines):
-    from xml.sax.saxutils import escape
-    from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-
-    styles = getSampleStyleSheet()
-    story = []
-    for line in lines:
-        style = styles["Heading2"] if line and not line.startswith("-") else styles["BodyText"]
-        text = escape(str(line)).replace("\n", "<br/>") or " "
-        story.append(Paragraph(text, style))
-        story.append(Spacer(1, 6))
-
-    SimpleDocTemplate(path).build(story)
-
-
-def _export_research_report_if_ready(done_task):
-    parsed = _parse_research_task(done_task.get("task", ""))
-    if not parsed:
-        return
-
-    rows = fetch_all_rows(
-        "SELECT * FROM tasks WHERE user_id = ? AND task LIKE ? ORDER BY id",
-        (done_task.get("user_id"), f"Research({parsed['id']}) |%"))
-    if not rows or any(row.get("status") != "done" for row in rows):
-        return
-
-    sections = [(row, _parse_research_task(row["task"])) for row in rows]
-    topic = parsed["topic"]
-    lines = [
-        "Harmony Research Report",
-        f"Research ID: {parsed['id']}",
-        f"Topic: {topic}",
-        f"Generated: {time.strftime('%Y-%m-%d %H:%M')}",
-        "",
-        "Executive Summary",
-    ]
-
-    for row, section in sections:
-        takeaway = _field(section["result"], "Takeaway") or "No takeaway provided."
-        lines.append(f"- {section['section']} ({row.get('assigned_agent')}): {takeaway}")
-
-    lines += ["", "Research Sections"]
-    for index, (row, section) in enumerate(sections, 1):
-        result = section["result"]
-        lines += [
-            "",
-            f"{index}. {section['section'].title()}",
-            f"Agent: {row.get('assigned_agent')}",
-            "",
-            "Paragraph:",
-            _field(result, "Paragraph") or result or "No paragraph provided.",
-            "",
-            "Sources:",
-            _field(result, "Sources") or "No sources provided.",
-            "",
-            "Takeaway:",
-            _field(result, "Takeaway") or "No takeaway provided.",
-        ]
-
-    filename = f"Harmony-Research-{parsed['id']}.pdf"
-    path = os.path.join(os.path.expanduser("~"), "Downloads", filename)
-    try:
-        _write_pdf(path, lines)
-    except OSError:
-        reports_dir = os.path.join(os.path.dirname(__file__), "resources", "reports")
-        os.makedirs(reports_dir, exist_ok=True)
-        path = os.path.join(reports_dir, filename)
-        _write_pdf(path, lines)
-    print(f"[Research] Exported report: {path}")
-
-
-def mark_task_done(task_id, result=None):
-    task = get_task(task_id)
-    parsed = _parse_research_task(task.get("task", "")) if task else None
-
-    if parsed:
-        addition = "" if RESULT_MARKER in task["task"] or not result else RESULT_MARKER + result
-        execute_and_commit(
-            "UPDATE tasks SET status = 'done', task = task || ? WHERE id = ?",
-            (addition, task_id))
-        _export_research_report_if_ready(get_task(task_id))
-        return
-
+def mark_task_done(task_id):
     execute_and_commit("UPDATE tasks SET status = 'done' WHERE id = ?", (task_id,))
 
 
