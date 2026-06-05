@@ -3,7 +3,7 @@ import json, socket, threading, os, sys
 _here = os.path.dirname(__file__)
 sys.path.insert(0, os.path.dirname(_here))
 
-from transport import client_secure, Secure
+from transport import client_secure
 
 
 

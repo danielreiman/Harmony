@@ -2,6 +2,6 @@ openai
 pynacl
 cryptography
 python-dotenv
-python-cfonts
+cfonts
 Pillow
-reportlab
+pydantic
