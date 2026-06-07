@@ -35,12 +35,12 @@ def main():
     print()
 
     broadcast_thread = threading.Thread(target=broadcast, daemon=True)
-    broadcast_thread.start()
+    broadcast_thread.start()  # tell agents on the LAN where we are
     print("[✓] LAN discovery broadcast started (UDP port 3030)")
 
     manager = Manager(agents, agents_lock)
     manager_thread = threading.Thread(target=manager.activate, daemon=True)
-    manager_thread.start()
+    manager_thread.start()  # hands queued tasks to idle agents
     print("[✓] Manager started")
 
     gateway_thread = threading.Thread(
@@ -48,26 +48,31 @@ def main():
         kwargs={"host": HOST, "port": GATEWAY_PORT},
         daemon=True
     )
-    gateway_thread.start()
+    gateway_thread.start()  # serves the admin dashboard's requests
 
     print(f"[✓] Gateway started")
 
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server_socket.bind((HOST, AGENT_PORT))
-    server_socket.listen()
+    try:
+        server_socket.bind((HOST, AGENT_PORT))
+        server_socket.listen()
+    except OSError as error:
+        print(f"[✗] Server failed to start on port {AGENT_PORT}: {error}")
+        return
     print(f"[✓] Server is listening for agents (TCP port {AGENT_PORT})")
 
     try:
         while True:
-            client_conn, client_addr = server_socket.accept()
+            client_conn, client_addr = server_socket.accept()  # wait for an agent
 
-            security = server_secure(client_conn, our_key, open_key)
+            security = server_secure(client_conn, our_key, open_key)  # encrypt channel
             if security is None:
                 print(f"[Server] Handshake failed from {client_addr[0]}")
                 client_conn.close()
                 continue
 
+            # Give the new agent a unique name not already in use.
             with agents_lock:
                 taken = set(agents.keys())
             taken.update(row["agent_id"] for row in get_all_agents())
@@ -79,8 +84,9 @@ def main():
             with agents_lock:
                 agents[agent_id] = agent
 
-            register_agent(agent_id)
+            register_agent(agent_id)  # record it in the database
 
+            # Each agent runs its think/act loop on its own thread.
             agent_thread = threading.Thread(target=agent.activate, daemon=True)
             agent_thread.start()
 

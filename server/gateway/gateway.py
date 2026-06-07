@@ -5,8 +5,9 @@ from handlers import route_request
 
 
 def handle_connection(conn, our_key, open_key):
+    # One admin request per connection: read it, answer it, close.
     try:
-        security = server_secure(conn, our_key, open_key)
+        security = server_secure(conn, our_key, open_key)  # encrypt channel
         if security is None:
             return
 
@@ -14,7 +15,7 @@ def handle_connection(conn, our_key, open_key):
         request = json.loads(data) if data else None
 
         if request is not None:
-            security.send(conn, route_request(request))
+            security.send(conn, route_request(request))  # run it and reply
 
     except Exception as error:
         print(f"[Gateway] Connection error: {error}")
@@ -38,8 +39,9 @@ def run_gateway(host="0.0.0.0", port=1223):
 
     while True:
         try:
-            conn, client_addr = gateway_sock.accept()
+            conn, client_addr = gateway_sock.accept()  # wait for an admin client
 
+            # Handle each request on its own thread so many admins can talk at once.
             t = threading.Thread(target=handle_connection, args=(conn, our_key, open_key), daemon=True)
             t.start()
         except Exception:

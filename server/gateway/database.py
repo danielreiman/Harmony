@@ -33,6 +33,7 @@ def fetch_one_row(sql, params=()):
 
 
 def execute_and_commit(sql, params=()):
+    # Run a write inside a transaction; undo it if anything goes wrong.
     connection = get_connection()
     connection.execute("BEGIN IMMEDIATE")
 
@@ -171,6 +172,7 @@ def delete_task(task_id, user_id):
 # ── Users ────────────────────────────────────────────────────────────────────
 
 def create_user(username, password):
+    # Never store the raw password — keep a salted PBKDF2 hash instead.
     salt = os.urandom(32).hex()
     hashed = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000).hex()
 
@@ -189,5 +191,6 @@ def verify_user(username, password):
     if user is None:
         return None
 
+    # Re-hash the entered password with the stored salt and compare.
     hashed = hashlib.pbkdf2_hmac("sha256", password.encode(), user["salt"].encode(), 100_000).hex()
     return user["id"] if hashed == user["password_hash"] else None

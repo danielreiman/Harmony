@@ -1,6 +1,15 @@
-import json, os, socket, sys, pyautogui, threading, tkinter as tk
+import json, os, socket, sys, pyautogui, threading
 
-from PIL import Image, ImageTk
+from PIL import Image
+
+# tkinter only powers the cosmetic "being controlled" overlay, and it needs the
+# Tcl/Tk binding that some Python builds lack. Run headless if it's unavailable.
+try:
+    import tkinter as tk
+    from PIL import ImageTk
+except Exception:
+    tk = None
+
 from discovery import discover
 from actions import act
 
@@ -17,7 +26,7 @@ def main():
     os.makedirs(RUNTIME_DIR, exist_ok=True)
 
     print("[Client] Searching for Harmony server...")
-    server_ip = discover(timeout=30)
+    server_ip = discover(timeout=30)             # listen for the server's UDP beacon
     if not server_ip:
         print("[Client] No server found.")
         return
@@ -25,27 +34,33 @@ def main():
     print(f"[Client] Found server at {server_ip}")
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect((server_ip, SERVER_PORT))
-    security = client_secure(sock)
+    try:
+        sock.connect((server_ip, SERVER_PORT))
+    except OSError as e:
+        print(f"[Client] Could not connect to server: {e}")
+        return
+    security = client_secure(sock)               # encrypt the channel (key exchange)
     if security is None:
         print("[Client] Handshake failed.")
         return
 
-    data = security.recv(sock)
+    data = security.recv(sock)                    # server's first message holds our id
     first_msg = json.loads(data) if data else {}
     agent_id = first_msg.get("agent_id", "unknown")
     print(f"[Client] Assigned ID: {agent_id}")
 
     def _loop():
+        # Keep handling commands from the server until it disconnects.
         try:
             while True:
                 data = security.recv(sock)
-                if not data:
+                if not data:                      # server closed the connection
                     break
                 message = json.loads(data)
                 m_type = message.get("type", "")
 
                 if m_type == "request_screenshot":
+                    # Grab the screen and send it back (blank image on failure).
                     try:
                         screenshot = pyautogui.screenshot()
                         screenshot.save(SCREENSHOT_PATH)
@@ -57,6 +72,7 @@ def main():
                         security.send(sock, f.read())
 
                 elif m_type == "execute_step":
+                    # Perform one mouse/keyboard action and report the result.
                     step = message.get("step", {})
                     result = act(step)
                     security.send(sock, {
@@ -65,6 +81,8 @@ def main():
                         "output": result.get("output"),
                         "error": None if result["success"] else f"Action '{step.get('Next Action', 'unknown')}' failed"
                     })
+        except Exception as e:
+            print(f"[Client] Loop error: {e}")
         finally:
             sock.close()
             print("[Client] Disconnected")
@@ -72,6 +90,11 @@ def main():
                 root.after(0, root.destroy)
             except Exception:
                 pass
+
+    # Without tkinter, run the message loop in the foreground (no overlay).
+    if tk is None:
+        _loop()
+        return
 
     # Overlay Window setup
     root = tk.Tk()
