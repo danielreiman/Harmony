@@ -166,10 +166,11 @@ class Agent:
 
 
     def assign(self, task, task_id=None):
+        # Give the agent a new task and wake its loop (task_ready event).
         self.task = task
         self.task_id = task_id
 
-        if not self.history:
+        if not self.history:  # first task: seed the system prompt
             self.history = [
                 {"role": "system", "content": SYSTEM_CONTENT},
                 {"role": "user", "content": f"<observation>\nExecute this task: {task}\n</observation>"},
@@ -187,6 +188,7 @@ class Agent:
 
 
     def run(self):
+        # One task = repeat look → think → act until the model says "done".
         cancel_states = ("stop_requested", "disconnect_requested", "idle", "clear_requested")
         steps_taken = 0
 
@@ -206,16 +208,16 @@ class Agent:
             self.save()
 
             if not self.security.send(self.conn, {"type": "request_screenshot"}):
-                return False
+                return False  # agent gone
 
-            screen_bytes = self.security.recv(self.conn)
+            screen_bytes = self.security.recv(self.conn)  # the agent's screen
             if not screen_bytes:
                 return False
 
             with open(self.screen_path, "wb") as f:
                 f.write(screen_bytes)
 
-            ai_path = prepare_screenshot_for_ai(self.screen_path, self.ai_screen_path)
+            ai_path = prepare_screenshot_for_ai(self.screen_path, self.ai_screen_path)  # shrink for the model
             with open(ai_path, "rb") as f:
                 image_b64 = base64.b64encode(f.read()).decode("ascii")
 
@@ -233,6 +235,7 @@ class Agent:
             self.agent_activity_message = "Thinking..."
             self.save()
 
+            # Send the system prompt + the most recent history (older screenshots dropped to save tokens).
             head = self.history[:2]
             tail = self.history[2:][-MAX_HISTORY_LENGTH:]
             delete_old_screenshots(tail)
@@ -253,7 +256,7 @@ class Agent:
                 self.save()
                 return True
 
-            message = response.choices[0].message
+            message = response.choices[0].message if response.choices else None
 
 
             # Read
@@ -316,9 +319,9 @@ class Agent:
             self.save()
 
             if not self.security.send(self.conn, {"type": "execute_step", "step": cmd_step}):
-                return False
+                return False  # tell the agent to perform the action
 
-            raw_reply = self.security.recv(self.conn)
+            raw_reply = self.security.recv(self.conn)  # agent reports back success/output
             result = json.loads(raw_reply) if raw_reply else {}
 
             if result.get("output"):

@@ -23,9 +23,9 @@ def handle_get_agent(agent_id):
     if agent is None:
         return {}
 
-    if agent.get("step_json"):
-        agent["step"] = json.loads(agent["step_json"])
-    else:
+    try:
+        agent["step"] = json.loads(agent["step_json"]) if agent.get("step_json") else {}
+    except Exception:
         agent["step"] = {}
 
     agent["id"] = agent.pop("agent_id")
@@ -35,6 +35,7 @@ def handle_get_agent(agent_id):
 
 
 def handle_get_screen(agent_id):
+    # Return the agent's latest screenshot as base64 text the browser can show.
     screenshot_path = os.path.join(RUNTIME_DIR, f"screenshot_{agent_id}.png")
 
     if not os.path.exists(screenshot_path):
@@ -74,7 +75,7 @@ def handle_send_task(request):
     if not task_text:
         return {"error": "Task is required"}
 
-    if not agent_id:
+    if not agent_id:  # no agent chosen → drop it in the shared queue
         db.add_task(task_text, user_id=user_id)
         return {"success": True, "message": "Task added to queue"}
 
@@ -82,11 +83,12 @@ def handle_send_task(request):
     if agent is None:
         return {"error": f"Agent {agent_id} not found"}
 
-    if agent["agent_state"] in ("idle", "working"):
+    state = agent.get("agent_state", "")
+    if state in ("idle", "working"):
         db.add_task(task_text, user_id=user_id, agent_id=agent_id)
         return {"success": True, "message": f"Task queued for {agent_id}"}
 
-    return {"error": f"Agent {agent_id} is {agent['agent_state']}"}
+    return {"error": f"Agent {agent_id} is {state}"}
 
 
 def handle_get_tasks(request):
@@ -97,10 +99,12 @@ def handle_get_tasks(request):
 def handle_delete_task(request):
     task_id = request.get("task_id")
 
-    if not task_id:
+    try:
+        task_id = int(task_id)
+    except (TypeError, ValueError):
         return {"error": "task_id is required"}
 
-    success = db.delete_task(int(task_id), request.get("user_id"))
+    success = db.delete_task(task_id, request.get("user_id"))
     return {"success": success}
 
 
@@ -139,6 +143,7 @@ def handle_stop_server():
 
 
 def route_request(request):
+    # Map the admin's "action" string to the function that handles it.
     action = request.get("action", "")
     agent_id = request.get("agent_id", "")
 

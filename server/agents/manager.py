@@ -12,11 +12,15 @@ class Manager:
 
     def activate(self):
         while True:
-            self.manage_connected_agents_once()
+            try:
+                self.manage_connected_agents_once()
+            except Exception as error:
+                print(f"[Manager] Error: {error}")
             time.sleep(POLL_INTERVAL_SECONDS)
 
 
     def manage_connected_agents_once(self):
+        # Snapshot what the database currently knows about each agent.
         saved_agents_by_id = {}
 
         for saved_agent in db.get_all_agents():
@@ -27,11 +31,13 @@ class Manager:
             saved_agent_ids = set(saved_agents_by_id)
             connected_agent_ids = set(self.connected_agents)
 
+            # Drop DB rows for agents that are no longer actually connected.
             for stale_agent_id in saved_agent_ids - connected_agent_ids:
                 db.remove_agent(stale_agent_id)
 
             for agent_id, agent in list(self.connected_agents.items()):
                 saved_agent = saved_agents_by_id.get(agent_id)
+                # The admin requests stop/clear/disconnect via the DB state.
                 requested_state = saved_agent.get("agent_state") if saved_agent else None
 
 
@@ -66,7 +72,7 @@ class Manager:
                     db.set_agent_state(agent_id, "idle")
 
 
-                # Task assignment
+                # Task assignment: only hand work to a free agent.
                 if agent.agent_state != "idle":
                     continue
 
@@ -74,6 +80,6 @@ class Manager:
                 if not queued_tasks_for_this_agent:
                     continue
 
-                next_task = queued_tasks_for_this_agent[0]
+                next_task = queued_tasks_for_this_agent[0]  # oldest queued task first
                 db.assign_task(next_task["id"], agent_id)
                 agent.assign(next_task["task"], task_id=next_task["id"])

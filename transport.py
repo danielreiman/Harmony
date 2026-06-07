@@ -4,16 +4,19 @@ from cryptography.fernet import Fernet
 
 
 def send_frame(sock, data):
-    sock.sendall(len(data).to_bytes(8) + data)
+    sock.sendall(len(data).to_bytes(8) + data)  # 8-byte length header, then the bytes
 
 
 def recv_frame(sock):
-    size = sock.recv(8)
-    if not size:
-        return None
-    size = int.from_bytes(size)
+    header = b""
+    while len(header) < 8:                       # read the full 8-byte length prefix
+        chunk = sock.recv(8 - len(header))
+        if not chunk:
+            return None
+        header += chunk
+    size = int.from_bytes(header)                # how many bytes the body has
     data = b""
-    while len(data) < size:
+    while len(data) < size:                      # keep reading until we have the whole body
         chunk = sock.recv(size - len(data))
         if not chunk:
             return None
@@ -47,12 +50,13 @@ def client_secure(sock):
 
 
 class Secure:
+    # Wraps a socket so every message is encrypted with the shared session key.
     def __init__(self, key):
         self.cipher = Fernet(key)
 
     def send(self, sock, data):
         if isinstance(data, dict):
-            data = json.dumps(data).encode()
+            data = json.dumps(data).encode()  # dicts are sent as JSON
         try:
             encrypted = self.cipher.encrypt(data)   # 1 encrypt
             send_frame(sock, encrypted)             # 2 send
@@ -64,4 +68,7 @@ class Secure:
         encrypted = recv_frame(sock)                # 1 receive
         if not encrypted:
             return None
-        return self.cipher.decrypt(encrypted)       # 2 decrypt
+        try:
+            return self.cipher.decrypt(encrypted)   # 2 decrypt
+        except Exception:
+            return None                             # corrupt/garbage frame

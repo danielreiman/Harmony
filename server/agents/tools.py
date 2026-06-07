@@ -110,6 +110,7 @@ STEP_SCHEMA = Step.model_json_schema()
 
 
 def value_for(tool_call: AnyTool):
+    # Pull the single "value" each action carries (text, key, command, ...).
     name = tool_call.tool_name
 
     if name == "type":
@@ -138,6 +139,7 @@ def end_coordinate_for(tool_call: AnyTool):
 
 
 def build_cmd_step(tool_call: AnyTool) -> dict:
+    # Flatten the model's tool call into the simple dict the agent client runs.
     return {
         "Next Action": tool_call.tool_name,
         "Coordinate": coordinate_for(tool_call),

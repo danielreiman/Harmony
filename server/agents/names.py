@@ -16,6 +16,7 @@ AGENT_NAMES = [
 
 
 def pick_agent_name(taken):
+    # Pick a random unused name; if all are used, add a [2], [3], ... suffix.
     taken = set(taken)
     free = [n for n in AGENT_NAMES if n not in taken]
 

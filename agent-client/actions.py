@@ -11,6 +11,7 @@ NEEDS_POSITION = {"left_click", "double_click", "right_click", "drag"}
 
 
 def scale_ai_coordinates(coord, screen_w, screen_h):
+    # The AI works in a 0-1000 grid; convert that to real pixels on this screen.
     if not coord or len(coord) != 2:
         raise ValueError("Invalid coordinate")
     x = int((max(0, min(1000, coord[0])) / 1000.0) * screen_w)
@@ -19,13 +20,14 @@ def scale_ai_coordinates(coord, screen_w, screen_h):
 
 
 def act(step):
+    # Run one action the server asked for; always return {success, output}.
     action = step.get("Next Action")
     value = step.get("Value")
     coord = step.get("Coordinate")
 
-    sw, sh = pyautogui.size()
-
     try:
+        sw, sh = pyautogui.size()
+
         if action in NEEDS_POSITION:
             x, y = scale_ai_coordinates(coord, sw, sh)
             pyautogui.moveTo(x, y, duration=MOVE_SPEED)

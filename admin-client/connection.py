@@ -15,8 +15,12 @@ GATEWAY_SERVER_PORT = 1223
 
 
 def watch_for_server():
+    # Background listener: update server_host whenever we hear the LAN beacon.
     global server_host
     udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    if hasattr(socket, "SO_REUSEPORT"):  # share the port with other local components
+        udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
     udp_socket.bind(("", UDP_DISCOVERY_PORT))
     while True:
         try:
@@ -24,18 +28,19 @@ def watch_for_server():
             if packet == HARMONY_BEACON:
                 server_host = sender_address[0]
         except Exception:
-            break
+            continue  # keep listening so re-discovery survives transient errors
 
 
 threading.Thread(target=watch_for_server, daemon=True).start()
 
 
 def request(payload):
+    # Send one request to the server and return its reply ({} on any failure).
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         sock.settimeout(10)
         sock.connect((server_host, GATEWAY_SERVER_PORT))
-        security = client_secure(sock)
+        security = client_secure(sock)            # encrypt the channel
         if security is None:
             return {}
         if not security.send(sock, payload):
@@ -43,6 +48,6 @@ def request(payload):
         data = security.recv(sock)
         return json.loads(data) if data else {}
     except Exception:
-        return {}
+        return {}                                 # never crash the UI on a network error
     finally:
         sock.close()
