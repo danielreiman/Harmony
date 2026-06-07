@@ -16,7 +16,7 @@ jobs:
           - name: server
             folder: server
             entry: server.py
-            extra: "--paths agents --paths gateway --hidden-import names --hidden-import agent --hidden-import manager --hidden-import prompts --hidden-import tools --hidden-import gateway --hidden-import handlers --hidden-import database --hidden-import keys --add-data 'gateway/resources;resources'"
+            extra: "--paths agents --paths gateway --hidden-import names --hidden-import agent --hidden-import manager --hidden-import prompts --hidden-import tools --hidden-import gateway --hidden-import handlers --hidden-import database --hidden-import keys --add-data 'gateway/resources/server_keys.bin;resources'"
           - name: admin-client
             folder: admin-client
             entry: client.py
