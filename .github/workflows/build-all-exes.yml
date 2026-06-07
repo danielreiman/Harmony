@@ -10,17 +10,21 @@ jobs:
     runs-on: windows-latest
 
     strategy:
+      fail-fast: false
       matrix:
         component:
           - name: server
             folder: server
             entry: server.py
+            extra: ""
           - name: admin-client
             folder: admin-client
             entry: client.py
+            extra: "--collect-all nicegui"
           - name: agent-client
             folder: agent-client
             entry: client.py
+            extra: ""
 
     steps:
       - name: Check out code
@@ -41,7 +45,7 @@ jobs:
       - name: Build EXE
         working-directory: ${{ matrix.component.folder }}
         run: |
-          pyinstaller --onefile --name ${{ matrix.component.name }} ${{ matrix.component.entry }}
+          pyinstaller --onefile --paths .. --name ${{ matrix.component.name }} ${{ matrix.component.extra }} ${{ matrix.component.entry }}
 
       - name: Upload EXE
         uses: actions/upload-artifact@v4
