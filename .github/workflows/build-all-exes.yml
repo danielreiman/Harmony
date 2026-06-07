@@ -1,0 +1,50 @@
+name: Build Windows EXEs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    strategy:
+      matrix:
+        component:
+          - name: server
+            folder: server
+            entry: server.py
+          - name: admin-client
+            folder: admin-client
+            entry: client.py
+          - name: agent-client
+            folder: agent-client
+            entry: client.py
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.component.folder }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          if (Test-Path requirements.txt) { pip install -r requirements.txt }
+
+      - name: Build EXE
+        working-directory: ${{ matrix.component.folder }}
+        run: |
+          pyinstaller --onefile --name ${{ matrix.component.name }} ${{ matrix.component.entry }}
+
+      - name: Upload EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.component.name }}-windows-exe
+          path: ${{ matrix.component.folder }}/dist/*.exe
