@@ -2,7 +2,7 @@ import json, os, socket, sys, pyautogui, threading
 
 from PIL import Image
 
-# tkinter only powers the cosmetic "being controlled" overlay, and it needs the
+# tkinter only powers the "being controlled" overlay, and it needs the
 # Tcl/Tk binding that some Python builds lack. Run headless if it's unavailable.
 try:
     import tkinter as tk

@@ -1,7 +1,8 @@
 import os
 from nacl.public import PrivateKey
 
-KEYS_FILE = os.path.join(os.path.dirname(__file__), "resources", "server_keys.bin")
+RESOURCE_DIR = os.path.join(os.path.dirname(__file__), "resources")
+KEYS_FILE = os.path.join(RESOURCE_DIR, "server_keys.bin")
 
 
 def load_keys():
@@ -9,6 +10,7 @@ def load_keys():
     if os.path.exists(KEYS_FILE):
         private = PrivateKey(open(KEYS_FILE, "rb").read())
     else:
+        os.makedirs(RESOURCE_DIR, exist_ok=True)
         private = PrivateKey.generate()
         with open(KEYS_FILE, "wb") as f:
             f.write(bytes(private))

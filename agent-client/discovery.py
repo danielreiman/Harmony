@@ -16,6 +16,6 @@ def discover(timeout=30, server_port=1222):
             if packet == b"HARMONY_SERVER":
                 return ip
     except socket.timeout:
-        return None  # caller checks for a falsy result
+        return None
     finally:
         sock.close()

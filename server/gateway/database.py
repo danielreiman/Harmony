@@ -1,7 +1,8 @@
 import hashlib, os, sqlite3, threading, time
 
 
-DATABASE_FILE_PATH = os.path.join(os.path.dirname(__file__), "resources", "harmony.db")
+RESOURCE_DIR = os.path.join(os.path.dirname(__file__), "resources")
+DATABASE_FILE_PATH = os.path.join(RESOURCE_DIR, "harmony.db")
 _local = threading.local()  # each worker gets its own link to the database
 
 
@@ -11,6 +12,7 @@ def get_connection():
         return _local.conn
 
     # Open the database file for the first time.
+    os.makedirs(RESOURCE_DIR, exist_ok=True)
     conn = sqlite3.connect(DATABASE_FILE_PATH, timeout=30, isolation_level=None)
 
     conn.execute("PRAGMA journal_mode=WAL")    # let many threads read and write at once

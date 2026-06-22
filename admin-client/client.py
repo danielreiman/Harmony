@@ -24,6 +24,7 @@ ACTION_LABELS = {
 
 # Agent states that should never appear in the dropdown.
 HIDDEN_AGENT_STATES = {"disconnected", "disconnect_requested"}
+PASSWORD_ERROR = "Use 7+ chars with letters and numbers"
 
 # Reused inline styles.
 SEND_BUTTON_STYLE = "background:#ffffff;color:#000000;font-weight:600;border-radius:14px"
@@ -44,6 +45,10 @@ body{background:#171717;font-family:"Helvetica Neue",Arial,sans-serif;color:#f4f
 def send_request(action, **fields):
     """Send one JSON request to the gateway and return the parsed reply."""
     return request({"action": action, **fields})
+
+
+def password_is_valid(password):
+    return len(password) > 6 and any(c.isalpha() for c in password) and any(c.isdigit() for c in password)
 
 
 def describe_step(step):
@@ -119,6 +124,9 @@ def index():
                 """Log in or sign up, then open the dashboard on success."""
                 if not username_input.value.strip() or not password_input.value:
                     error_label.text = "Username and password are required"
+                    return
+                if gateway_action == "auth_signup" and not password_is_valid(password_input.value):
+                    error_label.text = PASSWORD_ERROR
                     return
                 error_label.text = "Authenticating…"
                 reply = await run.io_bound(send_request, gateway_action,

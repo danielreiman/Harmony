@@ -120,9 +120,16 @@ def handle_auth_login(request):
     return {"user_id": user_id}
 
 
+def password_is_valid(password):
+    return len(password) > 6 and any(c.isalpha() for c in password) and any(c.isdigit() for c in password)
+
+
 def handle_auth_signup(request):
     u = request.get("username", "").strip()
     p = request.get("password", "")
+
+    if not password_is_valid(p):
+        return {"error": "Use 7+ chars with letters and numbers"}
 
     if not db.create_user(u, p):
         return {"error": "Username already taken"}
