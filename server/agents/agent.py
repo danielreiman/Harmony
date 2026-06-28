@@ -188,7 +188,7 @@ class Agent:
 
 
     def run(self):
-        # One task = repeat look → think → act until the model says "done".
+        # One task = repeat look -> think -> act until the model says "done".
         cancel_states = ("stop_requested", "disconnect_requested", "idle", "clear_requested")
         steps_taken = 0
 
@@ -318,8 +318,8 @@ class Agent:
             self.agent_activity_message = f"Acting: {step.tool_call.tool_name}"
             self.save()
 
-            if not self.security.send(self.conn, {"type": "execute_step", "step": cmd_step}):
-                return False  # tell the agent to perform the action
+            if not self.security.send(self.conn, {"type": "execute_step", "step": cmd_step}): # tell the agent to perform the action
+                return False
 
             raw_reply = self.security.recv(self.conn)  # agent reports back success/output
             result = json.loads(raw_reply) if raw_reply else {}

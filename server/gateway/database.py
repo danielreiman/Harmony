@@ -79,7 +79,6 @@ def init_db():
     """)
 
 
-# ── Agents ───────────────────────────────────────────────────────────────────
 
 def register_agent(agent_id):
     now = time.time()
@@ -121,8 +120,6 @@ def get_agent(agent_id):
 def get_all_agents():
     return fetch_all_rows("SELECT * FROM agents ORDER BY agent_id")
 
-
-# ── Tasks ────────────────────────────────────────────────────────────────────
 
 def add_task(task_text, user_id=None, agent_id=None):
     cursor = execute_and_commit(
@@ -171,7 +168,6 @@ def delete_task(task_id, user_id):
     return True
 
 
-# ── Users ────────────────────────────────────────────────────────────────────
 
 def create_user(username, password):
     # Never store the raw password — keep a salted PBKDF2 hash instead.

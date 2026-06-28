@@ -173,7 +173,7 @@ def index():
             with ui.row().classes("w-full items-baseline gap-2 no-wrap"):
                 ui.label(label).classes("text-xs font-bold shrink-0") \
                     .style(f"color:{label_color};min-width:62px")
-                text_classes = "text-xs grow break-words" + (" font-mono" if monospace else "")
+                text_classes = "text-xs grow break-words" + (" font-mono" if monospace else "") # Use small text, let it expand to fill space, and wrap long words when needed
                 ui.label(text).classes(text_classes).style(f"color:{text_color}")
 
         def add_system_message(message, color="#a8a8a8"):
